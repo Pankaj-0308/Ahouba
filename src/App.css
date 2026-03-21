@@ -1,0 +1,508 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0a0c14;
+  --surface: #12182a;
+  --surface-hover: #1a2238;
+  --sidebar-bg: #060810;
+  --main-bg: #0b0e18;
+  --text: #eef1f8;
+  --muted: #94a0b8;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-muted: rgba(99, 102, 241, 0.16);
+  --border: #1f2840;
+  --border-strong: #2d3a5c;
+  --page-gutter: clamp(1rem, 3.5vw, 2.25rem);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+html {
+  height: 100%;
+}
+
+#root {
+  min-height: 100%;
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 100vh;
+}
+
+.app-shell {
+  max-width: none;
+  margin: 0;
+  padding: 0 var(--page-gutter);
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.app-sidebar {
+  flex: 0 0 clamp(280px, 30vw, 400px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.85rem 1rem;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.app-brand {
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.65rem 0.85rem 0.85rem;
+  background: var(--main-bg);
+  overflow: hidden;
+}
+
+.app-camera-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.app-camera-section .camera-stack {
+  flex: 1;
+  min-height: 0;
+}
+
+.app-camera-section .camera-panel {
+  flex: 1 1 auto;
+  min-height: min(52vh, 560px);
+}
+
+.sidebar-map {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sidebar-map .map-wrap {
+  flex: 1;
+  min-height: 420px;
+}
+
+.sidebar-map .map-container {
+  min-height: 420px;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0.35rem 0 0;
+  line-height: 1.45;
+  max-width: none;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.45rem 0.5rem;
+}
+
+.toolbar input {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.toolbar select {
+  padding: 0.45rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.toolbar button[type="submit"] {
+  padding: 0.45rem 0.85rem;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(165deg, var(--accent-hover), var(--accent));
+  color: #f8fafc;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+}
+
+.toolbar button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-toolbar {
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-toolbar:hover {
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+  background: var(--surface-hover);
+}
+
+.speaking-badge {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.geo-line {
+  margin: 0;
+  font-size: 0.8rem;
+  min-height: 1.25rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error-text {
+  color: #f87171;
+}
+
+.mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+.linkish {
+  margin-left: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.linkish:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status {
+  margin: 0;
+  font-size: 0.85rem;
+  min-height: 1.2rem;
+  color: var(--muted);
+}
+
+.status:not(.error) {
+  color: var(--text);
+}
+
+.status.error {
+  color: #f87171;
+}
+
+.split__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.map-wrap {
+  flex: 1;
+  min-height: 260px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+}
+
+.col-foot {
+  margin: 0.35rem 0 0;
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
+
+.col-foot a {
+  color: var(--accent);
+}
+
+.camera-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.camera-panel {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: #050508;
+}
+
+.camera-video {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  object-fit: cover;
+  display: block;
+  vertical-align: top;
+}
+
+.obstacle-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.live-monitor {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text);
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  background: var(--accent-muted);
+  border: 1px solid rgba(99, 102, 241, 0.38);
+}
+
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  background: rgba(15, 20, 25, 0.75);
+}
+
+.camera-overlay--error {
+  gap: 0.75rem;
+}
+
+.camera-overlay--error p {
+  margin: 0;
+  max-width: 18rem;
+}
+
+.btn-retry {
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-retry:hover {
+  border-color: var(--accent);
+}
+
+.guidance-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  flex: 0 0 auto;
+}
+
+.guidance-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  color: var(--text);
+}
+
+.guidance-dest {
+  margin: 0 0 0.4rem;
+  font-size: 0.88rem;
+}
+
+.guidance-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.instruction-list {
+  margin: 0.35rem 0 0.5rem;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  line-height: 1.4;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+.instruction-list li {
+  margin-bottom: 0.35rem;
+}
+
+.guidance-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.live-guidance {
+  margin: 0.25rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.toggle-obs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-obs input {
+  width: auto;
+}
+
+.guidance-sub {
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vision-block {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    padding: 0 var(--page-gutter) 1rem;
+  }
+
+  .app-sidebar {
+    flex: 0 0 auto;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .app-main {
+    overflow: visible;
+    flex: 1 1 auto;
+    min-height: min(70vh, 900px);
+  }
+
+  .sidebar-map .map-wrap {
+    min-height: min(56vh, 540px);
+  }
+
+  .sidebar-map .map-container {
+    min-height: min(56vh, 540px);
+  }
+
+  .app-camera-section .camera-panel {
+    min-height: min(40vh, 360px);
+  }
+}
