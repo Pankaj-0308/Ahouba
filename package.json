@@ -10,13 +10,11 @@
   "dependencies": {
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",
+    "@vitejs/plugin-react": "^4.3.3",
     "leaflet": "^1.9.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-leaflet": "^4.2.1"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.3",
+    "react-leaflet": "^4.2.1",
     "vite": "^5.4.10"
   }
 }
