@@ -2,22 +2,38 @@
  * Decides when TTS should fire so slight camera tilt / detection jitter
  * does not re-trigger speech. On-screen line can still update every tick.
  *
- * Voice uses a **camera-only** coarse scene signature (no GPS/heading/route) so
- * compass and path jitter do not constantly flip the spoken scene.
+ * - Obstacle updates: one announcement per stable view; small tilts are ignored via
+ *   frame-difference gating + coarse scene signature + debounce.
+ * - Clear path + within 50 m of next step: periodic route-alignment reminders (outdoor/mixed).
  */
 
-import { guidanceMode } from "./liveCameraGuidance.js";
+import { guidanceMode, pathAlignSignature } from "./liveCameraGuidance.js";
 
-/** Wider distance bins so small depth jitter does not count as a new scene. */
-function distBucket(m) {
-  if (m >= 10) return "f";
-  if (m >= 6) return "d";
-  if (m >= 3.5) return "c";
-  if (m >= 1.8) return "b";
-  return "a";
+/** Mean abs diff / 255; below this, treat as tilt/jitter, not a new view. */
+const VIEW_CHANGE_MIN = 0.032;
+
+/** Consecutive frames with the same coarse scene before we treat it as a real change. */
+const SCENE_DEBOUNCE_FRAMES = 5;
+
+/** Minimum time between any non-urgent speech (path hint vs obstacle line). */
+const MIN_SPEECH_GAP_MS = 4000;
+
+/** Repeat path-alignment hint while in range and camera is clear. */
+const PATH_ALIGN_REPEAT_MS = 45000;
+
+/** If route alignment buckets change, allow a sooner repeat than periodic. */
+const PATH_ALIGN_SIG_CHANGE_MIN_MS = 12000;
+
+const URGENT_MIN_GAP_MS = 9000;
+const URGENT_SAME_KEY_REPEAT_MS = 28000;
+
+/** Wider distance bins for voice-only signature. */
+function distBucketCoarse(m) {
+  if (m >= 8) return "f";
+  if (m >= 3.5) return "m";
+  return "n";
 }
 
-/** Left/right collapse to "side" so small panning does not flip center ↔ side. */
 function zoneBucket(o) {
   if (o.distanceMeters >= 9) return "x";
   const z = o.zone;
@@ -27,14 +43,18 @@ function zoneBucket(o) {
 
 /**
  * Coarse, camera/obstacle-only signature for voice (no route or heading).
+ * Top 3 detections only to reduce flicker.
  * @param {Array<{ class: string, distanceMeters: number, zone: string }>} obstacles
  */
 export function voiceSceneSignature(obstacles) {
   if (!obstacles.length) return "clear";
   const rows = [...obstacles]
     .sort((a, b) => a.distanceMeters - b.distanceMeters)
-    .slice(0, 5)
-    .map((o) => `${String(o.class).toLowerCase()}:${distBucket(o.distanceMeters)}:${zoneBucket(o)}`);
+    .slice(0, 3)
+    .map(
+      (o) =>
+        `${String(o.class).toLowerCase()}:${distBucketCoarse(o.distanceMeters)}:${zoneBucket(o)}`
+    );
   return rows.sort().join("|");
 }
 
@@ -61,13 +81,6 @@ export function computeUrgent(obstacles) {
   return { key, nearest: n };
 }
 
-const URGENT_MIN_GAP_MS = 9000;
-const URGENT_SAME_KEY_REPEAT_MS = 28000;
-const NON_URGENT_MIN_GAP_MS = 55000;
-
-/** Consecutive frames with the same coarse scene before we treat it as a real change. */
-const SCENE_DEBOUNCE_FRAMES = 3;
-
 /**
  * @typedef {object} VoiceState
  * @property {string} lastSig
@@ -76,6 +89,8 @@ const SCENE_DEBOUNCE_FRAMES = 3;
  * @property {string} lastUrgentKey
  * @property {string | null} pendingSceneSig
  * @property {number} pendingSceneCount
+ * @property {string} lastPathAlignSig
+ * @property {number} lastPathAlignAt
  */
 
 /**
@@ -89,6 +104,8 @@ const SCENE_DEBOUNCE_FRAMES = 3;
  * @param {(nearest: object) => string} p.makeUrgentText
  * @param {VoiceState} p.state
  * @param {boolean} [p.forceIndoorRoom]
+ * @param {number} [p.viewChangeScore] — from createFrameChangeTracker(); default 1
+ * @param {string | null} [p.pathAlignmentText] — when camera clear + within 50 m of maneuver
  */
 export function decideVoiceUtterance({
   now,
@@ -100,10 +117,12 @@ export function decideVoiceUtterance({
   makeUrgentText,
   state,
   forceIndoorRoom = false,
+  viewChangeScore = 1,
+  pathAlignmentText = null,
 }) {
   const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
   const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
-  const sig = voiceSceneSignature(obstacles);
+  let sig = voiceSceneSignature(obstacles);
   const urgent = computeUrgent(obstacles);
 
   const nextState = { ...state };
@@ -120,8 +139,7 @@ export function decideVoiceUtterance({
     return { speak: true, text: lineFull, nextState };
   }
 
-  // Close hazard: only when the urgent *key* changes (closer / different object / zone),
-  // or same hazard repeats slowly so it is not silent forever
+  // Close hazard
   if (urgent) {
     const sameKey = urgent.key === state.lastUrgentKey;
     if (sameKey && timeSince < URGENT_SAME_KEY_REPEAT_MS) {
@@ -140,14 +158,47 @@ export function decideVoiceUtterance({
 
   nextState.lastUrgentKey = "";
 
-  // Same coarse scene as last spoken → reset debounce accumulator
+  // Path alignment when camera is clear (no obstacles) and outdoors/mixed — within 50 m (hint text only built then)
+  if (
+    pathAlignmentText &&
+    obstacles.length === 0 &&
+    (mode === "outdoor_route" || mode === "mixed")
+  ) {
+    const gapAlign = now - (state.lastPathAlignAt || 0);
+    const alignSig = pathAlignSignature(navContext);
+    const sigChanged = alignSig !== state.lastPathAlignSig;
+    const periodic = gapAlign >= PATH_ALIGN_REPEAT_MS;
+    const sigChangeOk = sigChanged && gapAlign >= PATH_ALIGN_SIG_CHANGE_MIN_MS;
+    if ((periodic || sigChangeOk) && timeSince >= MIN_SPEECH_GAP_MS) {
+      nextState.lastPathAlignSig = alignSig;
+      nextState.lastPathAlignAt = now;
+      nextState.lastSpokeAt = now;
+      nextState.pendingSceneSig = null;
+      nextState.pendingSceneCount = 0;
+      nextState.lastSig = "clear";
+      return { speak: true, text: pathAlignmentText, nextState };
+    }
+    // In the 50 m zone with a clear camera: wait for periodic path hints—do not spam generic "path clear".
+    nextState.pendingSceneSig = null;
+    nextState.pendingSceneCount = 0;
+    return { speak: false, text: null, nextState };
+  }
+
+  // Same scene as last spoken → idle
   if (sig === state.lastSig) {
     nextState.pendingSceneSig = null;
     nextState.pendingSceneCount = 0;
     return { speak: false, text: null, nextState };
   }
 
-  // Debounce: require N consecutive ticks with the same new sig before it counts
+  // Detection changed but image barely moved — likely tilt / model jitter; wait for real view change
+  if (obstacles.length > 0 && viewChangeScore < VIEW_CHANGE_MIN) {
+    nextState.pendingSceneSig = state.pendingSceneSig ?? null;
+    nextState.pendingSceneCount = state.pendingSceneCount ?? 0;
+    return { speak: false, text: null, nextState };
+  }
+
+  // Debounce: N consecutive ticks with the same new sig (while view change is sufficient)
   let pendingSig = state.pendingSceneSig ?? null;
   let pendingCount = state.pendingSceneCount ?? 0;
   if (sig !== pendingSig) {
@@ -162,7 +213,7 @@ export function decideVoiceUtterance({
   if (pendingCount < SCENE_DEBOUNCE_FRAMES) {
     return { speak: false, text: null, nextState };
   }
-  if (timeSince < NON_URGENT_MIN_GAP_MS) {
+  if (timeSince < MIN_SPEECH_GAP_MS) {
     return { speak: false, text: null, nextState };
   }
 
@@ -181,5 +232,7 @@ export function initialVoiceState() {
     lastUrgentKey: "",
     pendingSceneSig: null,
     pendingSceneCount: 0,
+    lastPathAlignSig: "",
+    lastPathAlignAt: 0,
   };
 }

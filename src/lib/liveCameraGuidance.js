@@ -366,3 +366,37 @@ function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, o
 
   return prefix + mid + tail;
 }
+
+/**
+ * When the camera shows no obstacles and you are close to the next maneuver (≤50 m),
+ * remind route alignment: on/off line, facing, distance to next step.
+ * @param {"indoor_exit" | "outdoor_route" | "mixed"} mode
+ * @returns {string | null}
+ */
+export function buildPathAlignmentHint(navContext, destination, mode) {
+  if (mode === "indoor_exit" || !navContext) return null;
+  const dM = navContext.distanceToManeuverMeters;
+  const dPath = navContext.distanceToPath;
+  if (dM == null || dM > 50) return null;
+  if (dPath == null) return null;
+  const rh = navContext.routeHints;
+  if (!rh) return null;
+  const dest = destination || "your destination";
+  const bits = [];
+  if (dPath <= 12) bits.push("You are on the blue route line.");
+  else bits.push(`About ${Math.round(dPath)} meters off the blue line—steer back toward the route.`);
+  if (rh.facingLine) bits.push(rh.facingLine);
+  else if (rh.pathToWalkLine) bits.push(rh.pathToWalkLine);
+  bits.push(`About ${Math.round(dM)} meters to the next map step toward ${dest}.`);
+  return bits.join(" ");
+}
+
+/**
+ * Coarse signature for path-alignment voice (avoid re-speaking the same bucket).
+ */
+export function pathAlignSignature(navContext) {
+  if (!navContext || navContext.distanceToManeuverMeters == null) return "";
+  const dM = navContext.distanceToManeuverMeters;
+  const dP = navContext.distanceToPath ?? 999;
+  return `pa:${Math.floor(dM / 8)}:${Math.floor(dP / 6)}`;
+}

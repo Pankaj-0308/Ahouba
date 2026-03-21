@@ -1,11 +1,13 @@
 import { useEffect, useRef } from "react";
 import {
   buildLiveMonitorLine,
+  buildPathAlignmentHint,
   buildShortObstacleVoice,
   buildUrgentVoice,
   guidanceMode,
 } from "../lib/liveCameraGuidance.js";
 import { analyzeDirectionalBrightness } from "../lib/indoorCameraHints.js";
+import { createFrameChangeTracker } from "../lib/cameraFrameChange.js";
 import { decideVoiceUtterance, initialVoiceState } from "../lib/voiceGating.js";
 
 /** How often we run COCO on the camera (continuous monitoring). */
@@ -13,8 +15,8 @@ const TICK_MS = 300;
 
 /**
  * Blind-navigation style: keep sampling the camera and updating obstacles + a live line.
- * Voice uses a coarse camera-only scene signature, multi-frame debounce, and long cooldowns
- * so small moves or detection jitter do not re-trigger TTS (on-screen line still updates every tick).
+ * Voice: one obstacle announcement per real view change (frame-diff gate ignores small tilts),
+ * plus periodic route-alignment hints when the path is clear and the next maneuver is within 50 m.
  */
 export function useContinuousObstacleMonitor({
   videoEl,
@@ -31,15 +33,18 @@ export function useContinuousObstacleMonitor({
 }) {
   const inFlightRef = useRef(false);
   const voiceStateRef = useRef(initialVoiceState());
+  const frameTrackerRef = useRef(null);
 
   useEffect(() => {
     if (!enabled) {
       voiceStateRef.current = initialVoiceState();
+      frameTrackerRef.current = null;
     }
   }, [enabled]);
 
   useEffect(() => {
     voiceStateRef.current = initialVoiceState();
+    frameTrackerRef.current = null;
   }, [forceIndoorRoom]);
 
   useEffect(() => {
@@ -78,6 +83,14 @@ export function useContinuousObstacleMonitor({
 
         if (!voiceEnabled || typeof speakNow !== "function" || cancelled) return;
 
+        if (!frameTrackerRef.current) frameTrackerRef.current = createFrameChangeTracker();
+        const viewChangeScore = frameTrackerRef.current(videoEl);
+        const pathAlignmentText = buildPathAlignmentHint(
+          navContext,
+          destination || "",
+          mode
+        );
+
         const textShort = buildShortObstacleVoice(
           obstacles,
           mode,
@@ -103,6 +116,8 @@ export function useContinuousObstacleMonitor({
             buildUrgentVoice(nearest, destination || "", routeStep, mode),
           state: voiceStateRef.current,
           forceIndoorRoom,
+          viewChangeScore,
+          pathAlignmentText,
         });
 
         if (decision.speak && decision.text) {
