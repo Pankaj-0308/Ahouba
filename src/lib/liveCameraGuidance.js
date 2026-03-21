@@ -1,8 +1,9 @@
 /**
  * Present-tense, camera-first lines for continuous monitoring.
- * Indoor mode: door-first—find a way out of the room, then map/route applies outside.
- * COCO has no reliable "door" class—we guide the user to scan walls and openings.
+ * Indoor mode: list obstacles and steer toward clearer / more open floor space.
  */
+
+import { obstacleSpokenLabel } from "./obstacleLabels.js";
 
 function formatM(m) {
   if (m >= 10) return `${Math.round(m)} m`;
@@ -25,7 +26,9 @@ export function buildShortObstacleVoice(
 ) {
   const snip = (routeStepSnip || "").slice(0, 100);
   const sorted = [...obstacles].sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, 3);
-  const parts = sorted.map((o) => `${o.class} about ${formatM(o.distanceMeters)} ${o.zone}`);
+  const parts = sorted.map(
+    (o) => `${obstacleSpokenLabel(o)} about ${formatM(o.distanceMeters)} ${o.zone}`
+  );
   const destShort = destination || "your destination";
 
   if (mode === "indoor_exit") {
@@ -62,7 +65,7 @@ export function buildShortObstacleVoice(
 }
 
 /**
- * Urgent cue. In indoor mode, remind door-first; outside, map + destination.
+ * Urgent cue. Indoor: steer around the obstacle toward open space; outside: map + destination.
  * @param {"indoor_exit" | "outdoor_route" | "mixed"} [mode]
  */
 export function buildUrgentVoice(nearest, destination, routeStep, mode = "mixed") {
@@ -73,19 +76,19 @@ export function buildUrgentVoice(nearest, destination, routeStep, mode = "mixed"
     const z = nearest.zone;
     const steer =
       z === "left"
-        ? "Bear right or step right to go around it."
+        ? "Bear right or step right to go around it toward clearer space."
         : z === "right"
-          ? "Bear left or step left to go around it."
-          : "Slow down and step slightly left or right to pass, then keep toward the walls for a door.";
-    return `Watch out—${nearest.class} about ${d} ahead on your ${z}. ${steer} After you are outside, we follow the map to ${dest}.`;
+          ? "Bear left or step left to go around it toward clearer space."
+          : "Slow down and step slightly left or right to pass, then move toward where the floor looks more open.";
+    return `Watch out—${obstacleSpokenLabel(nearest)} about ${d} ahead on your ${z}. ${steer}`;
   }
-  return `Watch out—${nearest.class} about ${d} ${nearest.zone}. Keep heading toward ${dest}. Next: ${map}`;
+  return `Watch out—${obstacleSpokenLabel(nearest)} about ${d} ${nearest.zone}. Keep heading toward ${dest}. Next: ${map}`;
 }
 
 /**
  * @param {number | null | undefined} gpsAccuracyM
  * @param {number | null | undefined} distanceToPath
- * @param {{ forceIndoorRoom?: boolean }} [opts] - user says they are inside a room (door-first).
+ * @param {{ forceIndoorRoom?: boolean }} [opts] - user says they are inside a room (object + empty-space guidance).
  * @returns {"indoor_exit" | "outdoor_route" | "mixed"}
  */
 export function guidanceMode(gpsAccuracyM, distanceToPath, opts = {}) {
@@ -109,13 +112,9 @@ function isPerson(o) {
 
 function isStaticIndoor(o) {
   const c = String(o.class).toLowerCase();
-  return /chair|bench|couch|potted plant|suitcase|backpack|dining table|bed|toilet|refrigerator|tv|sink|microwave|oven|clock|vase|book|laptop|mouse|keyboard|remote|cell phone/.test(
+  return /chair|bench|couch|potted plant|suitcase|backpack|dining table|bed|toilet|refrigerator|tv|sink|microwave|oven|clock|vase|book|laptop|mouse|keyboard|remote|cell phone|bottle|cup|bowl|banana|apple|orange|handbag|umbrella|toaster|hair drier|teddy bear|scissors/.test(
     c
   );
-}
-
-function isDoorDetection(o) {
-  return o.source === "door" || /door/i.test(String(o.class));
 }
 
 function isVehicleLike(o) {
@@ -126,7 +125,6 @@ function isVehicleLike(o) {
 /** People first (safety), then furniture (routing), then other objects. */
 export function prioritizeIndoorObstacles(obstacles) {
   const rank = (o) => {
-    if (isDoorDetection(o)) return -1;
     if (isPerson(o)) return 0;
     if (isStaticIndoor(o)) return 1;
     return 2;
@@ -201,20 +199,18 @@ function zoneOpennessScore(zoneArr) {
 function summarizeZoneShort(zoneArr, label) {
   if (!zoneArr.length) return "";
   const n = nearestInZone(zoneArr);
-  const names = [...new Set(zoneArr.slice(0, 4).map((o) => o.class))].join(", ");
+  const names = [...new Set(zoneArr.slice(0, 4).map((o) => obstacleSpokenLabel(o)))].join(", ");
   return `${names} on your ${label} (nearest about ${formatM(n.distanceMeters)})`;
 }
 
 /**
- * Camera-driven directions to leave the room: turn left/right, go straight, favor a side—
- * not a fixed script. Uses obstacle zones + optional brightness (window/door light).
+ * Camera-driven indoor guidance: obstacle list + steer toward the zone that scores as more open.
+ * Optional brightness hint (window / open area). No door detection.
  * @param {boolean} short — one or two sentences for TTS
  */
 function buildIndoorSceneGuidance(obstacles, brightnessHint, { dest, map, gpsAccuracyM, off }, short) {
-  const door = obstacles.find((o) => isDoorDetection(o));
-  const navOnly = obstacles.filter((o) => !isDoorDetection(o));
-  const navSorted = prioritizeIndoorObstacles(navOnly);
-  const { left, center, right } = groupByZone(navOnly);
+  const navSorted = prioritizeIndoorObstacles(obstacles);
+  const { left, center, right } = groupByZone(obstacles);
 
   const scores = {
     left: zoneOpennessScore(left),
@@ -230,34 +226,11 @@ function buildIndoorSceneGuidance(obstacles, brightnessHint, { dest, map, gpsAcc
   const brightLine =
     brightnessHint && brightnessHint.strength >= 10
       ? brightnessHint.lateral === "left"
-        ? "The upper left of the view looks brighter—turn left or move forward toward that light; it may be a window or door."
+        ? "The upper left of the view looks brighter—you can drift or turn left toward that open or lit area."
         : brightnessHint.lateral === "right"
-          ? "The upper right of the view looks brighter—turn right or move toward that light; it may be a window or door."
-          : "The center top of the view looks brighter—go straight toward that brighter band; it may be daylight through a door or glass."
+          ? "The upper right of the view looks brighter—you can drift or turn right toward that open or lit area."
+          : "The upper center looks brighter—try moving forward toward that lighter band if the floor feels clear."
       : "";
-
-  const doorGuide = door
-    ? door.zone === "center"
-      ? `Possible door about ${formatM(door.distanceMeters)} ahead in the center—walk straight toward it and check for a frame or handle before using it.`
-      : `Possible door about ${formatM(door.distanceMeters)} on your ${door.zone}—turn ${door.zone} and move toward it; verify it is a real exit, not a cabinet.`
-    : "";
-
-  const brightnessAgreesDoor =
-    door &&
-    brightnessHint &&
-    brightnessHint.strength >= 10 &&
-    brightnessHint.lateral === door.zone;
-
-  const doorAndBright =
-    brightnessAgreesDoor ? " The brighter area matches that direction—good sign for an opening." : "";
-
-  if (door && !navOnly.length) {
-    const tail = short
-      ? `Outside, follow the map to ${dest || "your destination"}.`
-      : `When you are outside, use the map toward ${dest}: ${map}. ${gpsAccuracyM != null ? `GPS about ±${Math.round(gpsAccuracyM)} m indoors.` : ""}`;
-    const b = brightLine ? ` ${brightLine}` : "";
-    return `${doorGuide}${doorAndBright}${b} ${tail}`.trim();
-  }
 
   const centerPerson = center.find((o) => isPerson(o) && o.distanceMeters < 3.8);
   if (centerPerson) {
@@ -266,34 +239,36 @@ function buildIndoorSceneGuidance(obstacles, brightnessHint, { dest, map, gpsAcc
     const avoid = passLeft ? summarizeZoneShort(right, "right") : summarizeZoneShort(left, "left");
     const a = avoid ? ` Watch ${avoid}.` : "";
     const b = short
-      ? `${doorGuide ? doorGuide + " " : ""}Person ahead in the center—${move} to pass.${a}`
-      : `${doorGuide ? doorGuide + " " : ""}Someone is about ${formatM(centerPerson.distanceMeters)} ahead in the middle of your view—${move} to go around them.${a} ${door ? "Keep the possible door in mind as you pass." : "Then keep scanning the walls for a door."}`;
-    return short ? `${b} ${brightLine || ""}`.trim() : `${b} ${brightLine ? brightLine + " " : ""}After you exit, use the map toward ${dest}.`.trim();
+      ? `Person ahead in the center—${move} to pass.${a}`
+      : `Someone is about ${formatM(centerPerson.distanceMeters)} ahead in the middle of your view—${move} to go around them.${a}`;
+    return short
+      ? `${b} ${brightLine || ""}`.trim()
+      : `${b} ${brightLine ? brightLine + " " : ""}When you have a GPS fix outside, use the map toward ${dest}.`.trim();
   }
 
   if (!obstacles.length) {
     const base = brightLine
-      ? `${brightLine} If you do not see an opening, pan the camera slowly along each wall.`
-      : "Pan the camera left and right along the walls—look for a door frame, glass, handle, or EXIT sign, then walk straight toward that opening.";
+      ? `${brightLine} Pan slowly to refresh what is in view.`
+      : "Pan the camera slowly left and right; walk toward where the floor sounds and feels more open.";
     return short
-      ? `${base} Outside, follow the map to ${dest || "your destination"}.`
-      : `${base} The route to ${dest} is for when you are outside. After you leave the building, follow: ${map}. ${gpsAccuracyM != null ? `GPS about ±${Math.round(gpsAccuracyM)} m indoors.` : ""} ${off != null && off > 35 ? `The blue line is ~${Math.round(off)} m away—use it on the street.` : ""}`.trim();
+      ? `${base} When outside, the map leads to ${dest || "your destination"}.`
+      : `${base} Map route for later: ${map}. ${gpsAccuracyM != null ? `GPS about ±${Math.round(gpsAccuracyM)} m indoors.` : ""} ${off != null && off > 35 ? `The blue line is ~${Math.round(off)} m away when you are on the street.` : ""}`.trim();
   }
 
   let move = "";
   if (gapBestMid < 2.5) {
     move =
-      "Left, center, and right look similarly busy—move forward a short distance, stop, and let the camera refresh; then choose the side that opens up.";
+      "The floor looks equally busy on all sides—shuffle forward a little, pause, then aim toward whichever side has more empty space when the view updates.";
   } else if (best === "center") {
     const n = nearestInZone(center);
     const d = n ? formatM(n.distanceMeters) : "?";
-    move = `Go straight ahead—the middle of your view looks clearer for about ${d} before the next object.`;
+    move = `Walk toward the open space in front of you—the center looks clearer for about ${d} before the next obstacle.`;
   } else if (best === "left") {
-    move = `Turn left or walk toward the left—that side looks more open.`;
-    if (right.length) move += ` Keep space from ${summarizeZoneShort(right, "right")}.`;
+    move = `Move left toward more empty floor space—that side looks less blocked.`;
+    if (right.length) move += ` Keep clearance from ${summarizeZoneShort(right, "right")}.`;
   } else {
-    move = `Turn right or walk toward the right—that side looks more open.`;
-    if (left.length) move += ` Keep space from ${summarizeZoneShort(left, "left")}.`;
+    move = `Move right toward more empty floor space—that side looks less blocked.`;
+    if (left.length) move += ` Keep clearance from ${summarizeZoneShort(left, "left")}.`;
   }
 
   const worst = order[2];
@@ -302,28 +277,21 @@ function buildIndoorSceneGuidance(obstacles, brightnessHint, { dest, map, gpsAcc
     move += ` Avoid committing straight into the ${wz} where it looks tighter.`;
   }
 
-  const sceneParts = [];
-  if (door) sceneParts.push(`possible door ${formatM(door.distanceMeters)} ${door.zone}`);
-  sceneParts.push(
-    ...navSorted
-      .filter((o) => !isDoorDetection(o))
-      .slice(0, 6)
-      .map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`)
-  );
-  const sceneList = sceneParts.join(", ");
+  const sceneList = navSorted
+    .slice(0, 6)
+    .map((o) => `${obstacleSpokenLabel(o)} ${formatM(o.distanceMeters)} ${o.zone}`)
+    .join(", ");
 
   if (short) {
-    const lead = doorGuide ? `${doorGuide}${doorAndBright} ` : "";
-    const bits = `${lead}${move} In view: ${sceneList}.`;
+    const bits = `${move} In view: ${sceneList}.`;
     const br = brightLine ? ` ${brightLine}` : "";
     return `${bits}${br}`.trim();
   }
 
-  const head = `${doorGuide ? `${doorGuide}${doorAndBright} ` : ""}To move through the room: ${move} What the camera sees: ${sceneList}.`;
+  const head = `To move through the room: ${move} What the camera sees: ${sceneList}.`;
+  const tail = ` When you are outside with a good GPS fix, use the map toward ${dest}: ${map}. ${gpsAccuracyM != null ? `GPS about ±${Math.round(gpsAccuracyM)} m indoors.` : ""} ${off != null && off > 35 ? `Street route is ~${Math.round(off)} m off the line when outdoors.` : ""}`;
 
-  const tail = ` When you are outside, use the map toward ${dest}: ${map}. ${gpsAccuracyM != null ? `GPS about ±${Math.round(gpsAccuracyM)} m indoors.` : ""} ${off != null && off > 35 ? `Street route is ~${Math.round(off)} m off the line—rejoin it outside.` : ""}`;
-
-  const brightFirst = !doorGuide && brightLine ? `${brightLine} ` : "";
+  const brightFirst = brightLine ? `${brightLine} ` : "";
   return `${brightFirst}${head} ${tail}`.trim();
 }
 
@@ -352,13 +320,15 @@ function buildOutdoorPathNarration(obstacles, { dest, map, navContext, gpsAccura
   const nearest = sorted[0];
   const urgent =
     nearest.distanceMeters < 3.2 && (nearest.zone === "center" || nearest.distanceMeters < 2.3);
-  const parts = sorted.slice(0, 6).map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`);
+  const parts = sorted.slice(0, 6).map(
+    (o) => `${obstacleSpokenLabel(o)} ${formatM(o.distanceMeters)} ${o.zone}`
+  );
   if (urgent) {
     const veh =
       isVehicleLike(nearest) || isPerson(nearest)
         ? " Give it extra space if it is traffic or a person."
         : "";
-    return `${lead}Watch out on your path—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}.${veh} Then continue with the map step above.`;
+    return `${lead}Watch out on your path—${obstacleSpokenLabel(nearest)} about ${formatM(nearest.distanceMeters)} ${nearest.zone}.${veh} Then continue with the map step above.`;
   }
 
   return `${lead}On your path in view: ${parts.join(", ")}.`;
@@ -371,7 +341,7 @@ function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, o
   if (routeHints?.combined) {
     prefix += routeHints.combined + " ";
   } else {
-    prefix += `If you are still inside a room, your first goal is the door—then use the map. `;
+    prefix += `Inside a building, use the live view to avoid obstacles and favor open floor space; then use the map when you are outside. `;
   }
 
   let mid = "";
@@ -382,9 +352,11 @@ function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, o
     const nearest = sorted[0];
     const urgent =
       nearest.distanceMeters < 3.4 && (nearest.zone === "center" || nearest.distanceMeters < 2.4);
-    const parts = sorted.slice(0, 6).map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`);
+    const parts = sorted.slice(0, 6).map(
+      (o) => `${obstacleSpokenLabel(o)} ${formatM(o.distanceMeters)} ${o.zone}`
+    );
     mid = urgent
-      ? `Watch out—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}. Also: ${parts.slice(1).join(", ") || "stay aware"}. ${map}`
+      ? `Watch out—${obstacleSpokenLabel(nearest)} about ${formatM(nearest.distanceMeters)} ${nearest.zone}. Also: ${parts.slice(1).join(", ") || "stay aware"}. ${map}`
       : `Live: ${parts.join(", ")}. ${map}`;
   }
 

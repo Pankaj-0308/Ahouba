@@ -1,11 +1,10 @@
 /**
- * Path-focused obstacle detection: COCO-SSD (people, vehicles, animals, traffic, furniture…)
- * plus optional door-shaped opening heuristic (vertical edges — not a guaranteed door detector).
+ * Path-focused obstacle detection: COCO-SSD (people, vehicles, animals, traffic, furniture…).
  */
 
 import * as tf from "@tensorflow/tfjs";
 import { load as loadCocoSsd } from "@tensorflow-models/coco-ssd";
-import { detectDoorLikeOpening } from "./doorHeuristics.js";
+import { displayNameForClass } from "./obstacleLabels.js";
 
 const CAMERA_HORIZONTAL_FOV_DEG = 65;
 
@@ -237,18 +236,45 @@ async function getModel() {
   return modelPromise;
 }
 
-/** Slightly higher to reduce spurious COCO labels; door uses separate heuristic. */
-const MIN_SCORE = 0.38;
+/** Slightly higher to reduce spurious COCO labels. */
+const MIN_SCORE = 0.35;
+/** Common room furniture and floor clutter — allow slightly lower confidence so more gets named. */
+const MIN_SCORE_INDOOR_OBJECT = 0.31;
+const INDOOR_OBJECT_CLASS = new Set([
+  "chair",
+  "couch",
+  "bed",
+  "dining table",
+  "refrigerator",
+  "bottle",
+  "cup",
+  "bowl",
+  "bench",
+  "sink",
+  "toilet",
+  "oven",
+  "microwave",
+  "tv",
+  "potted plant",
+  "clock",
+  "vase",
+  "book",
+  "laptop",
+  "cell phone",
+  "handbag",
+  "backpack",
+  "suitcase",
+  "umbrella",
+]);
 const MAX_COCO_DETECTIONS = 40;
 
-function mergeAndSort(cocoRows, doorRows) {
-  const combined = [...cocoRows, ...doorRows];
-  combined.sort((a, b) => a.sortKey - b.sortKey);
-  return combined.slice(0, 18).map(({ sortKey: _s, ...rest }) => rest);
+function finalizeObstacleRows(rows) {
+  rows.sort((a, b) => a.sortKey - b.sortKey);
+  return rows.slice(0, 18).map(({ sortKey: _s, ...rest }) => rest);
 }
 
 /**
- * @returns {Promise<Array<{ class: string, distanceMeters: number, zone: string, bbox: [number,number,number,number], source?: string }>>}
+ * @returns {Promise<Array<{ class: string, displayName?: string, distanceMeters: number, zone: string, bbox: [number,number,number,number], source?: string }>>}
  */
 export async function detectNavigationObstacles(video) {
   if (!video || video.readyState < 2 || video.videoWidth < 16) return [];
@@ -256,22 +282,19 @@ export async function detectNavigationObstacles(video) {
   const w = video.videoWidth;
   const h = video.videoHeight;
   const model = await getModel();
-  const predictions = await model.detect(video, MAX_COCO_DETECTIONS, MIN_SCORE);
-
-  const personBoxes = [];
-  for (let i = 0; i < predictions.length; i++) {
-    const pred = predictions[i];
-    if (pred.class.toLowerCase() !== "person") continue;
-    if (pred.score < MIN_SCORE) continue;
-    personBoxes.push(pred.bbox);
-  }
+  const predictions = await model.detect(
+    video,
+    MAX_COCO_DETECTIONS,
+    Math.min(MIN_SCORE, MIN_SCORE_INDOOR_OBJECT)
+  );
 
   const rows = [];
   for (let i = 0; i < predictions.length; i++) {
     const pred = predictions[i];
     const cls = pred.class.toLowerCase();
     if (NAV_EXCLUDE.has(cls)) continue;
-    if (pred.score < MIN_SCORE) continue;
+    const minForClass = INDOOR_OBJECT_CLASS.has(cls) ? MIN_SCORE_INDOOR_OBJECT : MIN_SCORE;
+    if (pred.score < minForClass) continue;
 
     const [x, y, bw, bh] = pred.bbox;
     const centerX = x + bw / 2;
@@ -283,6 +306,7 @@ export async function detectNavigationObstacles(video) {
 
     rows.push({
       class: pred.class,
+      displayName: displayNameForClass(pred.class),
       distanceMeters: Math.round(distanceMeters * 10) / 10,
       zone,
       sortKey: distanceMeters - pred.score * 0.5,
@@ -291,12 +315,5 @@ export async function detectNavigationObstacles(video) {
     });
   }
 
-  let doorRows = [];
-  try {
-    doorRows = detectDoorLikeOpening(video, personBoxes);
-  } catch {
-    doorRows = [];
-  }
-
-  return mergeAndSort(rows, doorRows);
+  return finalizeObstacleRows(rows);
 }

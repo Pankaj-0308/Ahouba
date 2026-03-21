@@ -1,6 +1,6 @@
 /**
- * Lightweight camera analysis for indoor exit: **brighter** regions in the upper frame
- * often point toward windows, glass doors, or daylight. Not a door detector—hint only.
+ * Lightweight camera analysis indoors: **brighter** regions in the upper frame
+ * often point toward windows or open, lit areas. Hint only—not a detector.
  */
 
 /**

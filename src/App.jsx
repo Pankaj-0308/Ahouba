@@ -44,7 +44,7 @@ export default function App() {
   const [visionError, setVisionError] = useState(null);
   const [liveLine, setLiveLine] = useState("");
   const [liveObstacles, setLiveObstacles] = useState([]);
-  /** Door-first room mode: prioritize finding a door before street-map guidance. */
+  /** Indoor room mode: obstacle list + steer toward open floor space; map when outside. */
   const [insideRoomDoorFirst, setInsideRoomDoorFirst] = useState(false);
   const lastVisionRef = useRef("");
 
@@ -294,13 +294,13 @@ export default function App() {
           </label>
         )}
         {hasRoute && visionOn && (
-          <label className="toggle-obs" title="Prioritize finding a door inside the room; then use the map outside">
+          <label className="toggle-obs" title="Inside: detect objects and guide toward empty space; outside: use the map">
             <input
               type="checkbox"
               checked={insideRoomDoorFirst}
               onChange={(e) => setInsideRoomDoorFirst(e.target.checked)}
             />
-            Inside room — door first
+            Inside room — obstacles &amp; open space
           </label>
         )}
         {hasRoute && visionOn && cloudVision && (

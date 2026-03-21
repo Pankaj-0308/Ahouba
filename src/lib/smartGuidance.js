@@ -3,7 +3,9 @@
  * where to go (map), how to move (pace / clearance), and path-relevant obstacles.
  */
 
-/** @typedef {{ class: string, distanceMeters: number, zone: string }} NavObstacle */
+import { obstacleSpokenLabel } from "./obstacleLabels.js";
+
+/** @typedef {{ class: string, displayName?: string, distanceMeters: number, zone: string }} NavObstacle */
 /** @typedef {{ distanceToManeuverMeters?: number|null, distanceToPath?: number|null, maneuverType?: string, modifier?: string }} NavContext */
 
 function isVehicleClass(c) {
@@ -53,7 +55,7 @@ function nearest(objs) {
 }
 
 function describeObs(o) {
-  return `${o.class} about ${formatM(o.distanceMeters)} on your ${o.zone}`;
+  return `${obstacleSpokenLabel(o)} about ${formatM(o.distanceMeters)} on your ${o.zone}`;
 }
 
 /**
@@ -101,7 +103,7 @@ export function buildSmartGuidanceFromDetections({
 
   if (gpsAccuracyM != null && !Number.isNaN(gpsAccuracyM) && gpsAccuracyM > 22) {
     parts.push(
-      `GPS is fuzzy—about ${Math.round(gpsAccuracyM)} meters. If you are still inside a room, find a door first; once you are outside, lean on the map and what you see at each turn.`
+      `GPS is fuzzy—about ${Math.round(gpsAccuracyM)} meters. Indoors, use the camera to avoid obstacles and find open space; once you are outside, lean on the map and what you see at each turn.`
     );
   }
 
@@ -183,11 +185,11 @@ export function buildSmartGuidanceFromDetections({
 
   if (hint === "left" && nL && nL.distanceMeters < 5) {
     parts.push(
-      `On your left now: ${nL.class} about ${formatM(nL.distanceMeters)}—confirm it's clear before you turn left on the route.`
+      `On your left now: ${obstacleSpokenLabel(nL)} about ${formatM(nL.distanceMeters)}—confirm it's clear before you turn left on the route.`
     );
   } else if (hint === "right" && nR && nR.distanceMeters < 5) {
     parts.push(
-      `On your right now: ${nR.class} about ${formatM(nR.distanceMeters)}—watch bikes or people before you turn right.`
+      `On your right now: ${obstacleSpokenLabel(nR)} about ${formatM(nR.distanceMeters)}—watch bikes or people before you turn right.`
     );
   }
 
@@ -213,7 +215,7 @@ export function buildSmartGuidanceFromDetections({
   const top = [...obstacles].sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, 2);
   if (top.length) {
     parts.push(
-      `Safety snapshot: ${top.map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`).join(", ")}.`
+      `Safety snapshot: ${top.map((o) => `${obstacleSpokenLabel(o)} ${formatM(o.distanceMeters)} ${o.zone}`).join(", ")}.`
     );
   }
 

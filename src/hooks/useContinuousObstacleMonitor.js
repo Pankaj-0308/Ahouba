@@ -27,7 +27,7 @@ export function useContinuousObstacleMonitor({
   onLiveUpdate,
   speakNow,
   voiceEnabled,
-  /** When true, guidance is door-first inside a room (overrides outdoor-style hints). */
+  /** When true, use indoor obstacle + empty-space guidance (overrides outdoor-style hints). */
   forceIndoorRoom = false,
 }) {
   const inFlightRef = useRef(false);
