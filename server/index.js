@@ -1,3 +1,4 @@
+const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const express = require("express");
@@ -27,6 +28,14 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/trips", tripsRouter);
 
+/** Avoid confusing 404 from the SPA catch-all when someone opens GET /api in the browser. */
+app.get("/api", (req, res) => {
+  res.json({
+    ok: true,
+    endpoints: ["/api/health", "GET /api/trips", "POST /api/trips"],
+  });
+});
+
 mongoose
   .connect(MONGODB_URI)
   .then(() => console.log("MongoDB connected"))
@@ -48,12 +57,32 @@ async function start() {
   );
 
   if (isProd) {
+    const indexHtml = path.join(clientDist, "index.html");
+    if (!fs.existsSync(indexHtml)) {
+      console.error(
+        `[ahouba] Missing ${indexHtml}. Build the client from the repo root: npm install && npm run build`
+      );
+    }
     app.use(express.static(clientDist));
     app.get("*", (req, res) => {
       if (req.path.startsWith("/api")) {
-        return res.status(404).json({ error: "Not found" });
+        return res.status(404).json({
+          error: "Not found",
+          path: req.path,
+          hint: "Known routes: /api, /api/health, /api/trips",
+        });
       }
-      res.sendFile(path.join(clientDist, "index.html"));
+      res.sendFile(indexHtml, (err) => {
+        if (err) {
+          console.error("[ahouba] sendFile index.html failed:", err.message);
+          res
+            .status(500)
+            .type("text")
+            .send(
+              "Client build missing or unreadable. On the host, run from repo root: npm install && npm run build"
+            );
+        }
+      });
     });
   } else {
     const { createServer: createViteServer } = require("vite");
