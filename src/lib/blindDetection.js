@@ -1,11 +1,11 @@
 /**
  * Path-focused obstacle detection: COCO-SSD (people, vehicles, animals, traffic, furniture…)
- * plus lightweight surface heuristics for stairs / potholes (not in COCO — approximate only).
+ * plus optional door-shaped opening heuristic (vertical edges — not a guaranteed door detector).
  */
 
 import * as tf from "@tensorflow/tfjs";
 import { load as loadCocoSsd } from "@tensorflow-models/coco-ssd";
-import { detectSurfaceHazards, iouApprox } from "./surfaceHazardHeuristics.js";
+import { detectDoorLikeOpening } from "./doorHeuristics.js";
 
 const CAMERA_HORIZONTAL_FOV_DEG = 65;
 
@@ -237,11 +237,12 @@ async function getModel() {
   return modelPromise;
 }
 
-const MIN_SCORE = 0.35;
+/** Slightly higher to reduce spurious COCO labels; door uses separate heuristic. */
+const MIN_SCORE = 0.38;
 const MAX_COCO_DETECTIONS = 40;
 
-function mergeAndSort(cocoRows, surfaceRows) {
-  const combined = [...cocoRows, ...surfaceRows];
+function mergeAndSort(cocoRows, doorRows) {
+  const combined = [...cocoRows, ...doorRows];
   combined.sort((a, b) => a.sortKey - b.sortKey);
   return combined.slice(0, 18).map(({ sortKey: _s, ...rest }) => rest);
 }
@@ -290,21 +291,12 @@ export async function detectNavigationObstacles(video) {
     });
   }
 
-  let surfaceRows = [];
+  let doorRows = [];
   try {
-    surfaceRows = detectSurfaceHazards(video, { personBoxes }).map((o) => ({
-      ...o,
-      sortKey: o.distanceMeters,
-    }));
-    surfaceRows = surfaceRows.filter((s) => {
-      for (const pb of personBoxes) {
-        if (iouApprox(s.bbox, pb) > 0.1) return false;
-      }
-      return true;
-    });
+    doorRows = detectDoorLikeOpening(video, personBoxes);
   } catch {
-    surfaceRows = [];
+    doorRows = [];
   }
 
-  return mergeAndSort(rows, surfaceRows);
+  return mergeAndSort(rows, doorRows);
 }
