@@ -36,10 +36,16 @@ mongoose
 
 async function start() {
   const server = http.createServer(app);
-  // Render sets RENDER=true; NODE_ENV is not always "production" at runtime. Without this,
-  // we try to load Vite (missing in prod installs) and crash before listen() — port scan fails.
+  // On Render, NODE_ENV is not always "production" at runtime. If we pick the Vite branch,
+  // require("vite") often fails (not installed in prod) and we never reach listen() — port scan fails.
   const isProd =
-    process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+    process.env.NODE_ENV === "production" ||
+    process.env.RENDER === "true" ||
+    Boolean(process.env.RENDER_EXTERNAL_URL);
+
+  console.log(
+    `[ahouba] NODE_ENV=${process.env.NODE_ENV ?? ""} RENDER=${process.env.RENDER ?? ""} isProd=${isProd} PORT=${PORT} HOST=${HOST}`
+  );
 
   if (isProd) {
     app.use(express.static(clientDist));
