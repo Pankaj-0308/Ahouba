@@ -44,6 +44,8 @@ export default function App() {
   const [visionError, setVisionError] = useState(null);
   const [liveLine, setLiveLine] = useState("");
   const [liveObstacles, setLiveObstacles] = useState([]);
+  /** Door-first room mode: prioritize finding a door before street-map guidance. */
+  const [insideRoomDoorFirst, setInsideRoomDoorFirst] = useState(false);
   const lastVisionRef = useRef("");
 
   const onVideoReady = useCallback((el) => setVideoEl(el), []);
@@ -146,6 +148,7 @@ export default function App() {
     onLiveUpdate,
     speakNow,
     voiceEnabled: speechSupported && visionOn && !cloudVision,
+    forceIndoorRoom: insideRoomDoorFirst,
   });
 
   const { analyzeNow } = useVisionGuidance({
@@ -171,6 +174,7 @@ export default function App() {
     setVisionError(null);
     setLiveLine("");
     setLiveObstacles([]);
+    setInsideRoomDoorFirst(false);
     setRouting(true);
     setStatus({ text: "Loading route…", error: false });
     setRouteLatLngs(null);
@@ -287,6 +291,16 @@ export default function App() {
           <label className="toggle-obs">
             <input type="checkbox" checked={visionOn} onChange={(e) => setVisionOn(e.target.checked)} />
             AI camera + route voice
+          </label>
+        )}
+        {hasRoute && visionOn && (
+          <label className="toggle-obs" title="Prioritize finding a door inside the room; then use the map outside">
+            <input
+              type="checkbox"
+              checked={insideRoomDoorFirst}
+              onChange={(e) => setInsideRoomDoorFirst(e.target.checked)}
+            />
+            Inside room — door first
           </label>
         )}
         {hasRoute && visionOn && cloudVision && (

@@ -26,6 +26,8 @@ export function useContinuousObstacleMonitor({
   onLiveUpdate,
   speakNow,
   voiceEnabled,
+  /** When true, guidance is door-first inside a room (overrides outdoor-style hints). */
+  forceIndoorRoom = false,
 }) {
   const inFlightRef = useRef(false);
   const voiceStateRef = useRef(initialVoiceState());
@@ -35,6 +37,10 @@ export function useContinuousObstacleMonitor({
       voiceStateRef.current = initialVoiceState();
     }
   }, [enabled]);
+
+  useEffect(() => {
+    voiceStateRef.current = initialVoiceState();
+  }, [forceIndoorRoom]);
 
   useEffect(() => {
     if (!enabled || !videoEl) {
@@ -61,13 +67,14 @@ export function useContinuousObstacleMonitor({
           routeStep,
           navContext,
           gpsAccuracyM,
+          forceIndoorRoom,
         });
         if (!cancelled) onLiveUpdate?.({ obstacles, line });
 
         if (!voiceEnabled || typeof speakNow !== "function" || cancelled) return;
 
         const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
-        const mode = guidanceMode(gpsAccuracyM, off);
+        const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
         const textShort = buildShortObstacleVoice(
           obstacles,
           mode,
@@ -94,9 +101,10 @@ export function useContinuousObstacleMonitor({
           lineFull: line,
           textShort: textForNonUrgent,
           makeUrgentText: (nearest) =>
-            buildUrgentVoice(nearest, destination || "", routeStep),
+            buildUrgentVoice(nearest, destination || "", routeStep, mode),
           routeHintSig,
           state: voiceStateRef.current,
+          forceIndoorRoom,
         });
 
         if (decision.speak && decision.text) {
@@ -130,5 +138,6 @@ export function useContinuousObstacleMonitor({
     onLiveUpdate,
     speakNow,
     voiceEnabled,
+    forceIndoorRoom,
   ]);
 }

@@ -101,7 +101,7 @@ export function buildSmartGuidanceFromDetections({
 
   if (gpsAccuracyM != null && !Number.isNaN(gpsAccuracyM) && gpsAccuracyM > 22) {
     parts.push(
-      `GPS is fuzzy—about ${Math.round(gpsAccuracyM)} meters—so lean on the map and what you see at each turn.`
+      `GPS is fuzzy—about ${Math.round(gpsAccuracyM)} meters. If you are still inside a room, find a door first; once you are outside, lean on the map and what you see at each turn.`
     );
   }
 

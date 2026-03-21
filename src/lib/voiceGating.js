@@ -65,6 +65,7 @@ const NON_URGENT_MIN_GAP_MS = 34000;
  * @param {(nearest: object) => string} p.makeUrgentText
  * @param {string} [p.routeHintSig]
  * @param {VoiceState} p.state
+ * @param {boolean} [p.forceIndoorRoom]
  */
 export function decideVoiceUtterance({
   now,
@@ -76,9 +77,10 @@ export function decideVoiceUtterance({
   makeUrgentText,
   routeHintSig = "",
   state,
+  forceIndoorRoom = false,
 }) {
   const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
-  const mode = guidanceMode(gpsAccuracyM, off);
+  const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
   const sig = stableSceneSignature(obstacles, routeHintSig);
   const urgent = computeUrgent(obstacles);
 

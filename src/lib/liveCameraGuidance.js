@@ -1,7 +1,7 @@
 /**
  * Present-tense, camera-first lines for continuous monitoring.
- * Handles two modes: (1) likely inside a building—guide toward exit/door, then destination;
- * (2) outside / on route—continuous path + obstacles. COCO has no "door" class—we say "door or exit".
+ * Indoor mode: door-first—find a way out of the room, then map/route applies outside.
+ * COCO has no reliable "door" class—we guide the user to scan walls and openings.
  */
 
 function formatM(m) {
@@ -21,10 +21,13 @@ export function buildShortObstacleVoice(obstacles, mode, routeHints, routeStepSn
   const parts = sorted.map((o) => `${o.class} about ${formatM(o.distanceMeters)} ${o.zone}`);
 
   if (mode === "indoor_exit") {
-    if (!obstacles.length) {
-      return "No obstacles in the list. Keep heading for a door or exit.";
+    const pri = prioritizeIndoorObstacles(obstacles)
+      .slice(0, 4)
+      .map((o) => `${o.class} about ${formatM(o.distanceMeters)} ${o.zone}`);
+    if (!pri.length) {
+      return "Inside the room: scan the walls for a door, glass, or EXIT sign. Move toward any brighter opening.";
     }
-    return `Update: ${parts.join(", ")}. Work toward the exit when you can.`;
+    return `Toward the door first: ${pri.join(", ")}. Work around them and keep searching the walls for a way out of this room.`;
   }
 
   if (mode === "outdoor_route") {
@@ -51,19 +54,29 @@ export function buildShortObstacleVoice(obstacles, mode, routeHints, routeStepSn
   return `Update: ${parts.join(", ")}.`;
 }
 
-/** Urgent cue + always remind goal and next map step (user asked for both when moving). */
-export function buildUrgentVoice(nearest, destination, routeStep) {
+/**
+ * Urgent cue. In indoor mode, remind door-first; outside, map + destination.
+ * @param {"indoor_exit" | "outdoor_route" | "mixed"} [mode]
+ */
+export function buildUrgentVoice(nearest, destination, routeStep, mode = "mixed") {
   const dest = destination || "your destination";
   const map = (routeStep || "").trim().slice(0, 120) || "Follow the map.";
-  return `Watch out—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}. Keep heading toward ${dest}. Next: ${map}`;
+  const d = formatM(nearest.distanceMeters);
+  if (mode === "indoor_exit") {
+    return `Watch out—${nearest.class} about ${d} ${nearest.zone}. Give space, then keep moving toward a door or bright opening. After you exit the room, we will follow the map to ${dest}.`;
+  }
+  return `Watch out—${nearest.class} about ${d} ${nearest.zone}. Keep heading toward ${dest}. Next: ${map}`;
 }
 
 /**
  * @param {number | null | undefined} gpsAccuracyM
  * @param {number | null | undefined} distanceToPath
+ * @param {{ forceIndoorRoom?: boolean }} [opts] - user says they are inside a room (door-first).
  * @returns {"indoor_exit" | "outdoor_route" | "mixed"}
  */
-export function guidanceMode(gpsAccuracyM, distanceToPath) {
+export function guidanceMode(gpsAccuracyM, distanceToPath, opts = {}) {
+  if (opts.forceIndoorRoom) return "indoor_exit";
+
   const g = gpsAccuracyM;
   const d = distanceToPath;
 
@@ -82,7 +95,9 @@ function isPerson(o) {
 
 function isStaticIndoor(o) {
   const c = String(o.class).toLowerCase();
-  return /chair|bench|couch|potted plant|suitcase|backpack|dining table|bed|toilet/.test(c);
+  return /chair|bench|couch|potted plant|suitcase|backpack|dining table|bed|toilet|refrigerator|tv|sink|microwave|oven|clock|vase|book|laptop|mouse|keyboard|remote|cell phone/.test(
+    c
+  );
 }
 
 function isSurfaceHint(o) {
@@ -99,6 +114,42 @@ function isVehicleLike(o) {
   return /^(car|truck|bus|motorcycle|bicycle|train|boat|airplane)$/.test(c);
 }
 
+/** People first (safety), then furniture (routing), then other objects. */
+export function prioritizeIndoorObstacles(obstacles) {
+  const rank = (o) => {
+    if (isPerson(o)) return 0;
+    if (isStaticIndoor(o)) return 1;
+    return 2;
+  };
+  return [...obstacles].sort((a, b) => {
+    const dr = rank(a) - rank(b);
+    if (dr !== 0) return dr;
+    return a.distanceMeters - b.distanceMeters;
+  });
+}
+
+/** Suggest which side may be clearer toward the wall / door search. */
+function sidestepHintForDoor(sorted) {
+  let left = 0;
+  let right = 0;
+  let center = 0;
+  for (const o of sorted) {
+    if (o.zone === "left") left++;
+    else if (o.zone === "right") right++;
+    else center++;
+  }
+  if (left > right + 1) {
+    return "More detected objects on your left—try favoring your right side while you search the walls for a door.";
+  }
+  if (right > left + 1) {
+    return "More detected objects on your right—try favoring your left side while you search the walls for a door.";
+  }
+  if (center >= 3) {
+    return "The center of your view is busy—slow down, step slightly, and scan the room edges for a door or exit.";
+  }
+  return "Move carefully along the walls if you can; doors often sit near corners or straight wall sections.";
+}
+
 /**
  * @param {Array<{ class: string, distanceMeters: number, zone: string }>} obstacles
  * @param {object} ctx
@@ -106,12 +157,13 @@ function isVehicleLike(o) {
  * @param {string} ctx.routeStep
  * @param {{ distanceToPath?: number|null } | null} ctx.navContext
  * @param {number | null | undefined} [ctx.gpsAccuracyM]
+ * @param {boolean} [ctx.forceIndoorRoom]
  */
-export function buildLiveMonitorLine(obstacles, { destination, routeStep, navContext, gpsAccuracyM = null }) {
+export function buildLiveMonitorLine(obstacles, { destination, routeStep, navContext, gpsAccuracyM = null, forceIndoorRoom = false }) {
   const dest = destination || "your destination";
   const map = routeStep?.trim() || "Follow the blue line on the map.";
   const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
-  const mode = guidanceMode(gpsAccuracyM, off);
+  const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
 
   if (mode === "indoor_exit") {
     return buildIndoorExitNarration(obstacles, { dest, map, gpsAccuracyM, off });
@@ -126,28 +178,34 @@ function buildIndoorExitNarration(obstacles, { dest, map, gpsAccuracyM, off }) {
   const sentences = [];
 
   sentences.push(
-    `You're probably still inside or GPS is weak—the map route to ${dest} is meant for outside on streets. First, get to the outdoors.`
+    `You are inside a room. Your first goal is the door: find a way out of this room before you rely on the outdoor map. The map to ${dest} is for streets; it works best after you leave the building.`
   );
 
-  const sorted = [...obstacles].sort((a, b) => a.distanceMeters - b.distanceMeters);
+  sentences.push(
+    `How to find the door: follow the walls, look for glass, handles, a brighter opening, or an EXIT sign. If the room is crowded, move slowly and scan the perimeter.`
+  );
+
+  const sorted = prioritizeIndoorObstacles(obstacles);
   const people = sorted.filter(isPerson);
   const rest = sorted.filter((o) => !isPerson(o));
 
   if (people.length) {
     const p = people[0];
     sentences.push(
-      `You see a person about ${formatM(p.distanceMeters)} toward your ${p.zone}—keep distance; pass on the side that has more free space while you head for a door or exit.`
+      `Someone is about ${formatM(p.distanceMeters)} toward your ${p.zone}—give them space; pass on the side where you have more room while you still move toward a wall and a door.`
     );
   }
 
   if (rest.length) {
     const bits = rest
-      .slice(0, 4)
+      .slice(0, 6)
       .map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`)
       .join(", ");
-    let hint = "Keep scanning for a way out.";
+    let hint =
+      "Navigate around tables, chairs, and other objects so you can keep searching the walls.";
     if (rest.some(isStaticIndoor)) {
-      hint = "Move around furniture if needed and keep walking toward daylight or signs for exit.";
+      hint +=
+        " If furniture blocks you, sidestep and keep the wall in mind—doors are usually on walls, not in the middle of the room.";
     }
     if (rest.some(isSurfaceHint)) {
       hint +=
@@ -156,21 +214,21 @@ function buildIndoorExitNarration(obstacles, { dest, map, gpsAccuracyM, off }) {
     sentences.push(`In the room: ${bits}. ${hint}`);
   }
 
+  sentences.push(sidestepHintForDoor(sorted));
+
   if (!obstacles.length) {
     sentences.push(
-      "Camera doesn't list obstacles—look for a door, stairs, or exit leading outside; then the map will match better."
+      "The camera does not list obstacles right now—still sweep the walls, corners, and any brighter opening for a door or hallway."
     );
   }
 
-  sentences.push(
-    `Goal after you're outside: ${dest}. Next map step when GPS picks up: ${map}`
-  );
+  sentences.push(`After you exit this room and get outside, then use the map: ${map} toward ${dest}.`);
 
   if (gpsAccuracyM != null) {
-    sentences.push(`GPS about ±${Math.round(gpsAccuracyM)} m—indoors this is normal; it should tighten outside.`);
+    sentences.push(`GPS about ±${Math.round(gpsAccuracyM)} m—weak indoors this is normal; it should improve outside.`);
   }
   if (off != null && off > 35) {
-    sentences.push(`You're about ${Math.round(off)} m off the drawn line—rejoin it once you're on the street.`);
+    sentences.push(`You're about ${Math.round(off)} m off the drawn line on the map—that line will matter once you are on the street.`);
   }
 
   return sentences.join(" ");
@@ -224,7 +282,7 @@ function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, o
   if (routeHints?.combined) {
     prefix += routeHints.combined + " ";
   } else {
-    prefix += `If you are still inside, reach a door or exit first. `;
+    prefix += `If you are still inside a room, your first goal is the door—then use the map. `;
   }
 
   let mid = "";
