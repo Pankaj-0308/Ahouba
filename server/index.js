@@ -36,7 +36,10 @@ mongoose
 
 async function start() {
   const server = http.createServer(app);
-  const isProd = process.env.NODE_ENV === "production";
+  // Render sets RENDER=true; NODE_ENV is not always "production" at runtime. Without this,
+  // we try to load Vite (missing in prod installs) and crash before listen() — port scan fails.
+  const isProd =
+    process.env.NODE_ENV === "production" || process.env.RENDER === "true";
 
   if (isProd) {
     app.use(express.static(clientDist));
