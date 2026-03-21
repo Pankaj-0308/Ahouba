@@ -27,6 +27,11 @@ const PATH_ALIGN_SIG_CHANGE_MIN_MS = 12000;
 const URGENT_MIN_GAP_MS = 9000;
 const URGENT_SAME_KEY_REPEAT_MS = 28000;
 
+/** Wrong-way alerts: priority after urgent; spaced so they are not constant. */
+const WRONG_WAY_SPEECH_GAP_MS = 2800;
+const WRONG_WAY_MIN_ANOTHER_MS = 8000;
+const WRONG_WAY_REPEAT_MS = 42000;
+
 /** Wider distance bins for voice-only signature. */
 function distBucketCoarse(m) {
   if (m >= 8) return "f";
@@ -91,6 +96,8 @@ export function computeUrgent(obstacles) {
  * @property {number} pendingSceneCount
  * @property {string} lastPathAlignSig
  * @property {number} lastPathAlignAt
+ * @property {string} lastWrongWaySig
+ * @property {number} lastWrongWayAt
  */
 
 /**
@@ -106,6 +113,8 @@ export function computeUrgent(obstacles) {
  * @param {boolean} [p.forceIndoorRoom]
  * @param {number} [p.viewChangeScore] — from createFrameChangeTracker(); default 1
  * @param {string | null} [p.pathAlignmentText] — when camera clear + within 50 m of maneuver
+ * @param {string | null} [p.wrongWayText]
+ * @param {string} [p.wrongWaySignature]
  */
 export function decideVoiceUtterance({
   now,
@@ -119,6 +128,8 @@ export function decideVoiceUtterance({
   forceIndoorRoom = false,
   viewChangeScore = 1,
   pathAlignmentText = null,
+  wrongWayText = null,
+  wrongWaySignature = "",
 }) {
   const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
   const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
@@ -136,6 +147,8 @@ export function decideVoiceUtterance({
     nextState.pendingSceneCount = 0;
     nextState.lastSpokeAt = now;
     nextState.lastUrgentKey = "";
+    nextState.lastWrongWaySig = "";
+    nextState.lastWrongWayAt = 0;
     return { speak: true, text: lineFull, nextState };
   }
 
@@ -157,6 +170,28 @@ export function decideVoiceUtterance({
   }
 
   nextState.lastUrgentKey = "";
+
+  // Wrong direction vs route (compass and/or GPS movement vs path ahead) — outdoor / mixed only
+  if (
+    wrongWayText &&
+    wrongWaySignature &&
+    (mode === "outdoor_route" || mode === "mixed")
+  ) {
+    const gapW = now - (state.lastWrongWayAt || 0);
+    const sigCh = wrongWaySignature !== state.lastWrongWaySig;
+    const timeOk = timeSince >= WRONG_WAY_SPEECH_GAP_MS;
+    const speakWrong =
+      timeOk &&
+      ((sigCh && gapW >= WRONG_WAY_MIN_ANOTHER_MS) || gapW >= WRONG_WAY_REPEAT_MS);
+    if (speakWrong) {
+      nextState.lastWrongWayAt = now;
+      nextState.lastWrongWaySig = wrongWaySignature;
+      nextState.lastSpokeAt = now;
+      nextState.pendingSceneSig = null;
+      nextState.pendingSceneCount = 0;
+      return { speak: true, text: wrongWayText, nextState };
+    }
+  }
 
   // Path alignment when camera is clear (no obstacles) and outdoors/mixed — within 50 m (hint text only built then)
   if (
@@ -234,5 +269,7 @@ export function initialVoiceState() {
     pendingSceneCount: 0,
     lastPathAlignSig: "",
     lastPathAlignAt: 0,
+    lastWrongWaySig: "",
+    lastWrongWayAt: 0,
   };
 }

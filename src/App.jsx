@@ -16,7 +16,11 @@ import {
   formatDurationSeconds,
 } from "./lib/routing.js";
 import { getNextManeuver } from "./lib/routeProgress.js";
-import { computeRouteGuidanceHints } from "./lib/routeGuidanceHints.js";
+import {
+  advanceWalkTracking,
+  computeRouteGuidanceHints,
+  computeWrongWayHint,
+} from "./lib/routeGuidanceHints.js";
 import { phraseForApproach } from "./lib/navigationPhrases.js";
 
 const cloudVision = isVisionConfigured();
@@ -47,6 +51,7 @@ export default function App() {
   /** Indoor room mode: obstacle list + steer toward open floor space; map when outside. */
   const [insideRoomDoorFirst, setInsideRoomDoorFirst] = useState(false);
   const lastVisionRef = useRef("");
+  const walkTrackRef = useRef({ anchor: null, lastMoveBearing: null });
 
   const onVideoReady = useCallback((el) => setVideoEl(el), []);
 
@@ -56,6 +61,10 @@ export default function App() {
   );
 
   const hasRoute = routeLatLngs && routeLatLngs.length > 0;
+
+  useEffect(() => {
+    walkTrackRef.current = { anchor: null, lastMoveBearing: null };
+  }, [routeLatLngs]);
 
   const liveNav = useMemo(() => {
     if (!routeRaw || !routeLatLngs || !coords) return null;
@@ -82,6 +91,14 @@ export default function App() {
     const step = steps?.[liveNav.nextIndex];
     if (!step) return null;
     const m = step.maneuver || {};
+    if (coords) {
+      walkTrackRef.current = advanceWalkTracking(
+        walkTrackRef.current,
+        coords.lat,
+        coords.lng
+      );
+    }
+    const movementBearing = walkTrackRef.current.lastMoveBearing;
     const routeHints =
       coords && routeLatLngs?.length
         ? computeRouteGuidanceHints({
@@ -92,14 +109,29 @@ export default function App() {
             distanceToPath: liveNav.distanceToPath,
           })
         : null;
+    const wrongWay =
+      coords && routeLatLngs?.length
+        ? computeWrongWayHint({
+            userLat: coords.lat,
+            userLng: coords.lng,
+            polyline: routeLatLngs,
+            heading,
+            movementBearing,
+            distanceToPath: liveNav.distanceToPath,
+            destination: activeDestination,
+            arrived: Boolean(liveNav.arrived),
+          })
+        : null;
     return {
       distanceToManeuverMeters: liveNav.distanceToManeuverMeters ?? null,
       distanceToPath: liveNav.distanceToPath ?? null,
       maneuverType: m.type || "continue",
       modifier: (m.modifier || "").trim(),
       routeHints,
+      wrongWayHint: wrongWay?.text ?? null,
+      wrongWaySignature: wrongWay?.signature ?? "",
     };
-  }, [routeRaw, liveNav, coords, routeLatLngs, heading]);
+  }, [routeRaw, liveNav, coords, routeLatLngs, heading, activeDestination]);
 
   useEffect(() => {
     if (!routeRaw) {

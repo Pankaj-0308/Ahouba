@@ -118,6 +118,8 @@ export function useContinuousObstacleMonitor({
           forceIndoorRoom,
           viewChangeScore,
           pathAlignmentText,
+          wrongWayText: navContext?.wrongWayHint ?? null,
+          wrongWaySignature: navContext?.wrongWaySignature ?? "",
         });
 
         if (decision.speak && decision.text) {
