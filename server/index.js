@@ -9,6 +9,8 @@ const tripsRouter = require("./routes/trips");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+/** Render and most PaaS require binding to all interfaces, not only localhost. */
+const HOST = process.env.HOST || "0.0.0.0";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/ahouba";
 const clientRoot = path.join(__dirname, "..");
 const clientDist = path.join(clientRoot, "dist");
@@ -59,8 +61,10 @@ async function start() {
   }
 
   return new Promise((resolve, reject) => {
-    server.listen(PORT, () => {
-      console.log(`Open http://localhost:${PORT} — API and React on the same server`);
+    server.listen(PORT, HOST, () => {
+      console.log(
+        `Listening on http://${HOST}:${PORT} — API and React on the same server`
+      );
       resolve(server);
     });
     server.on("error", (err) => {
