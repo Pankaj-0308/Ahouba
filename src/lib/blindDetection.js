@@ -5,7 +5,7 @@
 
 import * as tf from "@tensorflow/tfjs";
 import { load as loadCocoSsd } from "@tensorflow-models/coco-ssd";
-import { detectSurfaceHazards } from "./surfaceHazardHeuristics.js";
+import { detectSurfaceHazards, iouApprox } from "./surfaceHazardHeuristics.js";
 
 const CAMERA_HORIZONTAL_FOV_DEG = 65;
 
@@ -257,6 +257,14 @@ export async function detectNavigationObstacles(video) {
   const model = await getModel();
   const predictions = await model.detect(video, MAX_COCO_DETECTIONS, MIN_SCORE);
 
+  const personBoxes = [];
+  for (let i = 0; i < predictions.length; i++) {
+    const pred = predictions[i];
+    if (pred.class.toLowerCase() !== "person") continue;
+    if (pred.score < MIN_SCORE) continue;
+    personBoxes.push(pred.bbox);
+  }
+
   const rows = [];
   for (let i = 0; i < predictions.length; i++) {
     const pred = predictions[i];
@@ -284,10 +292,16 @@ export async function detectNavigationObstacles(video) {
 
   let surfaceRows = [];
   try {
-    surfaceRows = detectSurfaceHazards(video).map((o) => ({
+    surfaceRows = detectSurfaceHazards(video, { personBoxes }).map((o) => ({
       ...o,
       sortKey: o.distanceMeters,
     }));
+    surfaceRows = surfaceRows.filter((s) => {
+      for (const pb of personBoxes) {
+        if (iouApprox(s.bbox, pb) > 0.1) return false;
+      }
+      return true;
+    });
   } catch {
     surfaceRows = [];
   }

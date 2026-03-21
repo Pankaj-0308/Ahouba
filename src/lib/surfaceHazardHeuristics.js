@@ -1,13 +1,17 @@
 /**
  * COCO-SSD has no "pothole" or "stairs" classes. Lightweight frame heuristics on the
- * lower path ROI flag *possible* surface hazards (high false positive rate — treat as hints).
+ * lower path ROI — high false positive rate. **Person-shaped blobs** often look like a
+ * dark center band (false pothole) or add horizontal edges (false stairs), so we
+ * suppress heuristics when person boxes overlap those regions (see `personBoxes`).
  */
 
 /**
  * @param {HTMLVideoElement} video
+ * @param {{ personBoxes?: Array<[number,number,number,number]> }} [options] — bbox [x,y,w,h] in **video** pixels
  * @returns {Array<{ class: string, distanceMeters: number, zone: string, bbox: [number,number,number,number], source: string }>}
  */
-export function detectSurfaceHazards(video) {
+export function detectSurfaceHazards(video, options = {}) {
+  const personBoxes = options.personBoxes || [];
   if (!video || video.readyState < 2 || video.videoWidth < 32) return [];
 
   const vw = video.videoWidth;
@@ -17,9 +21,11 @@ export function detectSurfaceHazards(video) {
   const cw = Math.max(32, Math.round(vw * scale));
   const ch = Math.max(24, Math.round(vh * scale));
 
-  let canvas;
+  const suppressPothole = shouldSuppressPotholeHeuristic(personBoxes, vw, vh);
+  const suppressStairs = shouldSuppressStairsHeuristic(personBoxes, vw, vh);
+
   try {
-    canvas = document.createElement("canvas");
+    const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -32,10 +38,13 @@ export function detectSurfaceHazards(video) {
     }
 
     const yStart = Math.floor(ch * 0.52);
-    const roiH = ch - yStart;
 
-    const stair = scoreStairPattern(gray, cw, ch, yStart);
-    const hole = scorePotholeDarkPatch(gray, cw, ch, yStart);
+    const stair = suppressStairs
+      ? { detected: false, bbox: [0, 0, 0, 0] }
+      : scoreStairPattern(gray, cw, ch, yStart);
+    const hole = suppressPothole
+      ? { detected: false, bbox: [0, 0, 0, 0] }
+      : scorePotholeDarkPatch(gray, cw, ch, yStart);
 
     const out = [];
 
@@ -73,6 +82,41 @@ export function detectSurfaceHazards(video) {
   }
 }
 
+/** Standing people darken the center floor band — do not call that a pothole. */
+function shouldSuppressPotholeHeuristic(personBoxes, vw, vh) {
+  for (const box of personBoxes) {
+    if (personOverlapsPotholeRegion(box, vw, vh)) return true;
+  }
+  return false;
+}
+
+/** Legs and clothing add horizontal edges — do not confuse with stairs. */
+function shouldSuppressStairsHeuristic(personBoxes, vw, vh) {
+  for (const box of personBoxes) {
+    if (personLikelyCausesStairFalsePositive(box, vw, vh)) return true;
+  }
+  return false;
+}
+
+function personOverlapsPotholeRegion(box, vw, vh) {
+  const [x, y, w, h] = box;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const areaFrac = (w * h) / (vw * vh);
+  const inCenterX = cx > vw * 0.18 && cx < vw * 0.82;
+  const inLowerY = cy > vh * 0.28;
+  return inCenterX && inLowerY && areaFrac > 0.012;
+}
+
+function personLikelyCausesStairFalsePositive(box, vw, vh) {
+  const [x, y, w, h] = box;
+  const footY = y + h;
+  const inLower = footY > vh * 0.48;
+  const tall = h > vh * 0.14;
+  const centerish = x + w / 2 > vw * 0.12 && x + w / 2 < vw * 0.88;
+  return inLower && tall && centerish;
+}
+
 function horizontalZone(centerX, frameWidth) {
   const t = frameWidth / 3;
   if (centerX < t) return "left";
@@ -92,7 +136,7 @@ function scaleBboxToVideo(bbox, vw, vh, cw, ch) {
   return [bbox[0] * sx, bbox[1] * sy, bbox[2] * sx, bbox[3] * sy];
 }
 
-function iouApprox(a, b) {
+export function iouApprox(a, b) {
   const ax2 = a[0] + a[2];
   const ay2 = a[1] + a[3];
   const bx2 = b[0] + b[2];
@@ -104,9 +148,6 @@ function iouApprox(a, b) {
   return u > 0 ? inter / u : 0;
 }
 
-/**
- * Horizontal edges stacked vertically (steps) in the lower frame.
- */
 function scoreStairPattern(gray, cw, ch, yStart) {
   const roiH = ch - yStart;
   if (roiH < 16) return { detected: false, bbox: [0, 0, 0, 0] };
@@ -140,7 +181,7 @@ function scoreStairPattern(gray, cw, ch, yStart) {
   for (let i = 2; i < roiH - 2; i++) {
     const v = rowEdge[i];
     if (
-      v > mean + std * 0.55 &&
+      v > mean + std * 0.62 &&
       v > rowEdge[i - 1] &&
       v > rowEdge[i + 1] &&
       v > rowEdge[i - 2] * 0.92
@@ -149,20 +190,12 @@ function scoreStairPattern(gray, cw, ch, yStart) {
     }
   }
 
-  const detected = peaks >= 5 && peaks <= 48 && std > 2.8;
+  const detected = peaks >= 7 && peaks <= 34 && std > 3.4;
 
-  const bbox = [
-    x0,
-    yStart,
-    x1 - x0,
-    roiH,
-  ];
+  const bbox = [x0, yStart, x1 - x0, roiH];
   return { detected, bbox };
 }
 
-/**
- * Darker band in the lower-center vs sides (rough proxy for hole / wet patch / shadow).
- */
 function scorePotholeDarkPatch(gray, cw, ch, yStart) {
   const y1 = ch;
   const cx0 = Math.floor(cw * 0.3);
@@ -191,7 +224,7 @@ function scorePotholeDarkPatch(gray, cw, ch, yStart) {
   const outerMean = outer / outerN;
   const delta = innerMean - outerMean;
 
-  const detected = delta < -18 && innerMean < 118;
+  const detected = delta < -26 && innerMean < 100;
 
   const bbox = [cx0, yStart, cx1 - cx0, y1 - yStart];
   return { detected, bbox };

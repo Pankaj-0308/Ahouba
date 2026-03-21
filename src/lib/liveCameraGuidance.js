@@ -25,9 +25,9 @@ export function buildShortObstacleVoice(obstacles, mode, routeHints, routeStepSn
       .slice(0, 4)
       .map((o) => `${o.class} about ${formatM(o.distanceMeters)} ${o.zone}`);
     if (!pri.length) {
-      return "Inside the room: scan the walls for a door, glass, or EXIT sign. Move toward any brighter opening.";
+      return "Step 1: Scan walls and corners for a door. Step 2: Move to the clearest wall. Step 3: Exit through the opening, then use the map outside.";
     }
-    return `Toward the door first: ${pri.join(", ")}. Work around them and keep searching the walls for a way out of this room.`;
+    return `Steps: 1) Aim for a door on the wall. 2) Work around: ${pri.join(", ")}. 3) At the threshold, slow and check the sill. 4) Outside, follow the map.`;
   }
 
   if (mode === "outdoor_route") {
@@ -175,25 +175,34 @@ export function buildLiveMonitorLine(obstacles, { destination, routeStep, navCon
 }
 
 function buildIndoorExitNarration(obstacles, { dest, map, gpsAccuracyM, off }) {
-  const sentences = [];
-
-  sentences.push(
-    `You are inside a room. Your first goal is the door: find a way out of this room before you rely on the outdoor map. The map to ${dest} is for streets; it works best after you leave the building.`
-  );
-
-  sentences.push(
-    `How to find the door: follow the walls, look for glass, handles, a brighter opening, or an EXIT sign. If the room is crowded, move slowly and scan the perimeter.`
-  );
-
   const sorted = prioritizeIndoorObstacles(obstacles);
   const people = sorted.filter(isPerson);
   const rest = sorted.filter((o) => !isPerson(o));
 
+  const lines = [];
+
+  lines.push(
+    `You are inside a room. Do not rely on the street map yet—the route to ${dest} is for outside. Follow these steps to leave the room safely, then we will use the map.`
+  );
+
+  let step = 1;
+  lines.push(
+    `Step ${step}: Pause and orient. Scan the walls from left to right, then check corners—look for a door frame, glass, a handle, a brighter opening, or an EXIT sign.`
+  );
+  step++;
+
+  lines.push(
+    `Step ${step}: Choose a direction. ${sidestepHintForDoor(sorted)}`
+  );
+  step++;
+
   if (people.length) {
     const p = people[0];
-    sentences.push(
-      `Someone is about ${formatM(p.distanceMeters)} toward your ${p.zone}—give them space; pass on the side where you have more room while you still move toward a wall and a door.`
+    const more = people.length > 1 ? ` (${people.length} people in view)` : "";
+    lines.push(
+      `Step ${step}: People in the room${more}: someone is about ${formatM(p.distanceMeters)} toward your ${p.zone}. Slow down, announce yourself if needed, and pass on the side with more space—do not turn your back to a door wall you are aiming for.`
     );
+    step++;
   }
 
   if (rest.length) {
@@ -201,37 +210,47 @@ function buildIndoorExitNarration(obstacles, { dest, map, gpsAccuracyM, off }) {
       .slice(0, 6)
       .map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`)
       .join(", ");
-    let hint =
-      "Navigate around tables, chairs, and other objects so you can keep searching the walls.";
+    let extra = " Take short segments: move forward a little, re-scan, then adjust.";
     if (rest.some(isStaticIndoor)) {
-      hint +=
-        " If furniture blocks you, sidestep and keep the wall in mind—doors are usually on walls, not in the middle of the room.";
+      extra +=
+        " If a table or chair blocks you, sidestep and keep the wall in mind—doors sit on walls, not in the middle of the room.";
     }
     if (rest.some(isSurfaceHint)) {
-      hint +=
-        " If the camera flags possible stairs or an uneven patch, slow down and check with your foot or cane before stepping.";
+      extra +=
+        " If the camera flags possible stairs or a dip, stop and check with your foot or cane before stepping.";
     }
-    sentences.push(`In the room: ${bits}. ${hint}`);
+    lines.push(
+      `Step ${step}: Navigate around objects in the room: ${bits}.${extra}`
+    );
+    step++;
+  } else if (!obstacles.length) {
+    lines.push(
+      `Step ${step}: The camera does not list obstacles—still sweep the walls and corners; move slowly toward the wall that looks most like an exit.`
+    );
+    step++;
   }
 
-  sentences.push(sidestepHintForDoor(sorted));
+  lines.push(
+    `Step ${step}: When you see a clear opening, approach the threshold slowly—check for a step, sill, or swing—then move through.`
+  );
+  step++;
 
-  if (!obstacles.length) {
-    sentences.push(
-      "The camera does not list obstacles right now—still sweep the walls, corners, and any brighter opening for a door or hallway."
+  lines.push(
+    `Step ${step}: Outside the building, open space should help GPS. Then follow the map: ${map} toward ${dest}.`
+  );
+
+  if (gpsAccuracyM != null) {
+    lines.push(
+      `Note: GPS about ±${Math.round(gpsAccuracyM)} m indoors is normal; it should improve when you leave the building.`
+    );
+  }
+  if (off != null && off > 35) {
+    lines.push(
+      `The blue line is about ${Math.round(off)} m away—use it once you are on the street, not while you are still inside.`
     );
   }
 
-  sentences.push(`After you exit this room and get outside, then use the map: ${map} toward ${dest}.`);
-
-  if (gpsAccuracyM != null) {
-    sentences.push(`GPS about ±${Math.round(gpsAccuracyM)} m—weak indoors this is normal; it should improve outside.`);
-  }
-  if (off != null && off > 35) {
-    sentences.push(`You're about ${Math.round(off)} m off the drawn line on the map—that line will matter once you are on the street.`);
-  }
-
-  return sentences.join(" ");
+  return lines.join(" ");
 }
 
 function buildOutdoorPathNarration(obstacles, { dest, map, navContext, gpsAccuracyM, off }) {
