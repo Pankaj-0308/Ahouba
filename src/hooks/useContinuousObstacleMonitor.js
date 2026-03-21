@@ -5,6 +5,7 @@ import {
   buildUrgentVoice,
   guidanceMode,
 } from "../lib/liveCameraGuidance.js";
+import { analyzeDirectionalBrightness } from "../lib/indoorCameraHints.js";
 import { computeRouteHintSignature } from "../lib/routeGuidanceHints.js";
 import { decideVoiceUtterance, initialVoiceState } from "../lib/voiceGating.js";
 
@@ -62,24 +63,29 @@ export function useContinuousObstacleMonitor({
         const gpsAccuracyM =
           typeof getGpsAccuracy === "function" ? getGpsAccuracy() : null;
 
+        const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
+        const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
+        const brightnessHint = mode === "indoor_exit" ? analyzeDirectionalBrightness(videoEl) : null;
+
         const line = buildLiveMonitorLine(obstacles, {
           destination: destination || "",
           routeStep,
           navContext,
           gpsAccuracyM,
           forceIndoorRoom,
+          brightnessHint,
         });
         if (!cancelled) onLiveUpdate?.({ obstacles, line });
 
         if (!voiceEnabled || typeof speakNow !== "function" || cancelled) return;
 
-        const off = typeof navContext?.distanceToPath === "number" ? navContext.distanceToPath : null;
-        const mode = guidanceMode(gpsAccuracyM, off, { forceIndoorRoom });
         const textShort = buildShortObstacleVoice(
           obstacles,
           mode,
           navContext?.routeHints,
-          routeStep
+          routeStep,
+          brightnessHint,
+          destination || ""
         );
 
         // Outside / mixed: speak the same rich line as the screen (where to go + path + obstacles).
