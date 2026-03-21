@@ -6,7 +6,6 @@ import {
   guidanceMode,
 } from "../lib/liveCameraGuidance.js";
 import { analyzeDirectionalBrightness } from "../lib/indoorCameraHints.js";
-import { computeRouteHintSignature } from "../lib/routeGuidanceHints.js";
 import { decideVoiceUtterance, initialVoiceState } from "../lib/voiceGating.js";
 
 /** How often we run COCO on the camera (continuous monitoring). */
@@ -14,7 +13,8 @@ const TICK_MS = 300;
 
 /**
  * Blind-navigation style: keep sampling the camera and updating obstacles + a live line.
- * Voice uses stable scene signatures + cooldowns so small tilts do not re-trigger TTS.
+ * Voice uses a coarse camera-only scene signature, multi-frame debounce, and long cooldowns
+ * so small moves or detection jitter do not re-trigger TTS (on-screen line still updates every tick).
  */
 export function useContinuousObstacleMonitor({
   videoEl,
@@ -23,7 +23,6 @@ export function useContinuousObstacleMonitor({
   getRouteStep,
   getNavContext,
   getGpsAccuracy,
-  getHeading,
   onLiveUpdate,
   speakNow,
   voiceEnabled,
@@ -93,12 +92,6 @@ export function useContinuousObstacleMonitor({
         const textForNonUrgent =
           mode === "outdoor_route" || mode === "mixed" ? line : textShort;
 
-        const routeHintSig =
-          computeRouteHintSignature(
-            navContext?.distanceToPath,
-            typeof getHeading === "function" ? getHeading() : null
-          ) + `|step:${(routeStep || "").slice(0, 48)}`;
-
         const decision = decideVoiceUtterance({
           now: Date.now(),
           obstacles,
@@ -108,7 +101,6 @@ export function useContinuousObstacleMonitor({
           textShort: textForNonUrgent,
           makeUrgentText: (nearest) =>
             buildUrgentVoice(nearest, destination || "", routeStep, mode),
-          routeHintSig,
           state: voiceStateRef.current,
           forceIndoorRoom,
         });
@@ -140,7 +132,6 @@ export function useContinuousObstacleMonitor({
     getRouteStep,
     getNavContext,
     getGpsAccuracy,
-    getHeading,
     onLiveUpdate,
     speakNow,
     voiceEnabled,

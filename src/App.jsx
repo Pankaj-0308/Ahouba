@@ -144,7 +144,6 @@ export default function App() {
     getRouteStep,
     getNavContext,
     getGpsAccuracy,
-    getHeading,
     onLiveUpdate,
     speakNow,
     voiceEnabled: speechSupported && visionOn && !cloudVision,
