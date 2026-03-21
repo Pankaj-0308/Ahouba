@@ -54,15 +54,25 @@ export default function ObstacleOverlay({ videoEl, obstacles }) {
 
         const isCenter = o.zone === "center";
 
-        ctx.strokeStyle = isCenter ? "rgba(255, 80, 80, 0.95)" : "rgba(80, 160, 255, 0.95)";
+        const isHint = o.source === "heuristic";
+
+        ctx.strokeStyle = isHint
+          ? isCenter
+            ? "rgba(255, 165, 40, 0.98)"
+            : "rgba(200, 120, 255, 0.92)"
+          : isCenter
+            ? "rgba(255, 80, 80, 0.95)"
+            : "rgba(80, 160, 255, 0.95)";
+
+        ctx.setLineDash(isHint ? [6, 4] : []);
 
         ctx.lineWidth = Math.max(2, Math.round(vw / 400));
 
         ctx.strokeRect(x, y, w, h);
 
+        ctx.setLineDash([]);
 
-
-        const label = `${o.class} ~${o.distanceMeters}m`;
+        const label = `${o.class}${isHint ? " (hint)" : ""} ~${o.distanceMeters}m`;
 
         ctx.font = `${Math.max(12, Math.round(vw / 90))}px system-ui, sans-serif`;
 

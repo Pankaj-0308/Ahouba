@@ -7,7 +7,7 @@
 /** @typedef {{ distanceToManeuverMeters?: number|null, distanceToPath?: number|null, maneuverType?: string, modifier?: string }} NavContext */
 
 function isVehicleClass(c) {
-  return /^(car|truck|bus|motorcycle|bicycle)$/i.test(String(c));
+  return /^(car|truck|bus|motorcycle|bicycle|train|boat|airplane)$/i.test(String(c));
 }
 
 function isPersonClass(c) {

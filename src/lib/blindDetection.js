@@ -1,65 +1,186 @@
 /**
- * Continuous obstacle detection + coarse distance (from Blind-Navigation pattern).
- * COCO-SSD + assumed camera FOV + typical object sizes — approximate only.
+ * Path-focused obstacle detection: COCO-SSD (people, vehicles, animals, traffic, furniture…)
+ * plus lightweight surface heuristics for stairs / potholes (not in COCO — approximate only).
  */
 
 import * as tf from "@tensorflow/tfjs";
 import { load as loadCocoSsd } from "@tensorflow-models/coco-ssd";
+import { detectSurfaceHazards } from "./surfaceHazardHeuristics.js";
 
 const CAMERA_HORIZONTAL_FOV_DEG = 65;
 
+/** Typical real-world sizes (m) — COCO class names must match model output (lowercase). */
 const TYPICAL_OBJECT_HEIGHT_M = {
   person: 1.7,
-  car: 1.5,
-  truck: 2.6,
-  bus: 3.0,
-  motorcycle: 1.2,
   bicycle: 1.1,
-  dog: 0.5,
-  cat: 0.25,
-  chair: 1.0,
-  bench: 0.9,
+  car: 1.5,
+  motorcycle: 1.2,
+  airplane: 3.0,
+  bus: 3.0,
+  train: 2.8,
+  truck: 2.6,
+  boat: 1.2,
   "traffic light": 1.2,
-  "stop sign": 0.75,
   "fire hydrant": 0.9,
+  "stop sign": 0.75,
   "parking meter": 1.2,
+  bench: 0.9,
+  bird: 0.22,
+  cat: 0.25,
+  dog: 0.55,
+  horse: 1.5,
+  sheep: 0.9,
+  cow: 1.4,
+  elephant: 2.2,
+  bear: 1.2,
+  zebra: 1.5,
+  giraffe: 2.8,
   backpack: 0.45,
+  umbrella: 0.55,
+  handbag: 0.35,
   suitcase: 0.6,
-  "potted plant": 0.8,
+  frisbee: 0.03,
+  skis: 1.0,
+  snowboard: 1.0,
+  "sports ball": 0.24,
+  kite: 0.5,
+  "baseball bat": 0.85,
+  "baseball glove": 0.28,
+  skateboard: 0.12,
+  surfboard: 0.45,
+  "tennis racket": 0.35,
+  bottle: 0.28,
+  cup: 0.12,
+  bowl: 0.08,
+  banana: 0.2,
+  apple: 0.08,
+  sandwich: 0.06,
+  orange: 0.08,
+  broccoli: 0.1,
+  carrot: 0.08,
+  "hot dog": 0.06,
+  pizza: 0.04,
+  donut: 0.05,
+  cake: 0.12,
+  chair: 1.0,
+  couch: 0.85,
+  "potted plant": 0.85,
+  bed: 0.65,
+  "dining table": 0.75,
+  toilet: 0.55,
+  tv: 0.55,
+  laptop: 0.02,
+  "cell phone": 0.16,
+  microwave: 0.35,
+  oven: 0.55,
+  toaster: 0.22,
+  sink: 0.45,
+  refrigerator: 1.75,
+  book: 0.28,
+  clock: 0.35,
+  vase: 0.45,
+  scissors: 0.12,
+  "teddy bear": 0.35,
+  "hair drier": 0.22,
 };
 
 const TYPICAL_OBJECT_WIDTH_M = {
   person: 0.5,
-  car: 1.8,
-  truck: 2.5,
-  bus: 2.6,
-  motorcycle: 0.8,
   bicycle: 0.6,
-  dog: 0.3,
-  cat: 0.18,
-  chair: 0.45,
-  bench: 1.2,
-  "traffic light": 0.4,
-  "stop sign": 0.6,
+  car: 1.85,
+  motorcycle: 0.85,
+  airplane: 3.2,
+  bus: 2.6,
+  train: 2.6,
+  truck: 2.5,
+  boat: 2.0,
+  "traffic light": 0.45,
   "fire hydrant": 0.4,
-  "parking meter": 0.25,
+  "stop sign": 0.6,
+  "parking meter": 0.28,
+  bench: 1.25,
+  bird: 0.28,
+  cat: 0.2,
+  dog: 0.38,
+  horse: 0.65,
+  sheep: 0.65,
+  cow: 0.85,
+  elephant: 1.2,
+  bear: 0.75,
+  zebra: 0.7,
+  giraffe: 0.75,
   backpack: 0.35,
-  suitcase: 0.4,
-  "potted plant": 0.5,
+  umbrella: 0.55,
+  handbag: 0.32,
+  suitcase: 0.42,
+  frisbee: 0.22,
+  skis: 0.18,
+  snowboard: 0.28,
+  "sports ball": 0.22,
+  kite: 0.55,
+  "baseball bat": 0.06,
+  "baseball glove": 0.22,
+  skateboard: 0.22,
+  surfboard: 0.55,
+  "tennis racket": 0.25,
+  bottle: 0.08,
+  cup: 0.1,
+  bowl: 0.18,
+  banana: 0.05,
+  apple: 0.08,
+  sandwich: 0.12,
+  orange: 0.08,
+  broccoli: 0.12,
+  carrot: 0.05,
+  "hot dog": 0.04,
+  pizza: 0.28,
+  donut: 0.08,
+  cake: 0.22,
+  chair: 0.48,
+  couch: 1.15,
+  "potted plant": 0.45,
+  bed: 1.45,
+  "dining table": 1.05,
+  toilet: 0.45,
+  tv: 0.95,
+  laptop: 0.32,
+  "cell phone": 0.08,
+  microwave: 0.48,
+  oven: 0.55,
+  toaster: 0.28,
+  sink: 0.55,
+  refrigerator: 0.75,
+  book: 0.18,
+  clock: 0.18,
+  vase: 0.28,
+  scissors: 0.08,
+  "teddy bear": 0.28,
+  "hair drier": 0.18,
 };
 
-/** Only classes that matter for path safety — not food, screens, sports, etc. */
-const NAV_RELEVANT = new Set(
-  Object.keys(TYPICAL_OBJECT_HEIGHT_M).map((k) => k.toLowerCase())
-);
+/** Tiny / desktop clutter — not useful for walking path (model still often mis-detects these). */
+const NAV_EXCLUDE = new Set([
+  "fork",
+  "knife",
+  "spoon",
+  "toothbrush",
+  "wine glass",
+  "mouse",
+  "keyboard",
+  "remote",
+  "tie",
+]);
+
+const DEFAULT_HEIGHT_M = 0.5;
+const DEFAULT_WIDTH_M = 0.42;
 
 const DISTANCE_EMA_ALPHA = 0.35;
 const distanceSmoothing = new Map();
 
 function estimateDistanceMeters(det, frameWidth, frameHeight) {
   const objectLabel = det.class.toLowerCase();
-  const realHeightM = TYPICAL_OBJECT_HEIGHT_M[objectLabel];
-  const realWidthM = TYPICAL_OBJECT_WIDTH_M[objectLabel];
+  const realHeightM = TYPICAL_OBJECT_HEIGHT_M[objectLabel] ?? DEFAULT_HEIGHT_M;
+  const realWidthM = TYPICAL_OBJECT_WIDTH_M[objectLabel] ?? DEFAULT_WIDTH_M;
 
   const hFovRad = (CAMERA_HORIZONTAL_FOV_DEG * Math.PI) / 180;
   const aspect = frameWidth / Math.max(1, frameHeight);
@@ -116,10 +237,17 @@ async function getModel() {
   return modelPromise;
 }
 
-const MIN_SCORE = 0.38;
+const MIN_SCORE = 0.35;
+const MAX_COCO_DETECTIONS = 40;
+
+function mergeAndSort(cocoRows, surfaceRows) {
+  const combined = [...cocoRows, ...surfaceRows];
+  combined.sort((a, b) => a.sortKey - b.sortKey);
+  return combined.slice(0, 18).map(({ sortKey: _s, ...rest }) => rest);
+}
 
 /**
- * @returns {Promise<Array<{ class: string, distanceMeters: number, zone: string, bbox: [number,number,number,number] }>>}
+ * @returns {Promise<Array<{ class: string, distanceMeters: number, zone: string, bbox: [number,number,number,number], source?: string }>>}
  */
 export async function detectNavigationObstacles(video) {
   if (!video || video.readyState < 2 || video.videoWidth < 16) return [];
@@ -127,20 +255,20 @@ export async function detectNavigationObstacles(video) {
   const w = video.videoWidth;
   const h = video.videoHeight;
   const model = await getModel();
-  const predictions = await model.detect(video, 24, MIN_SCORE);
+  const predictions = await model.detect(video, MAX_COCO_DETECTIONS, MIN_SCORE);
 
   const rows = [];
   for (let i = 0; i < predictions.length; i++) {
     const pred = predictions[i];
     const cls = pred.class.toLowerCase();
-    if (!NAV_RELEVANT.has(cls)) continue;
+    if (NAV_EXCLUDE.has(cls)) continue;
     if (pred.score < MIN_SCORE) continue;
 
     const [x, y, bw, bh] = pred.bbox;
     const centerX = x + bw / 2;
     const zone = horizontalZone(centerX, w);
     const raw = estimateDistanceMeters(pred, w, h);
-    const smoothKey = `${cls}_${Math.round(centerX / 80)}`;
+    const smoothKey = `coco_${cls}_${Math.round(centerX / 80)}`;
     const distanceMeters = getSmoothedDistance(smoothKey, raw);
     if (distanceMeters == null) continue;
 
@@ -150,14 +278,19 @@ export async function detectNavigationObstacles(video) {
       zone,
       sortKey: distanceMeters - pred.score * 0.5,
       bbox: [x, y, bw, bh],
+      source: "coco",
     });
   }
 
-  rows.sort((a, b) => a.sortKey - b.sortKey);
-  return rows.map(({ class: c, distanceMeters: d, zone: z, bbox }) => ({
-    class: c,
-    distanceMeters: d,
-    zone: z,
-    bbox,
-  }));
+  let surfaceRows = [];
+  try {
+    surfaceRows = detectSurfaceHazards(video).map((o) => ({
+      ...o,
+      sortKey: o.distanceMeters,
+    }));
+  } catch {
+    surfaceRows = [];
+  }
+
+  return mergeAndSort(rows, surfaceRows);
 }

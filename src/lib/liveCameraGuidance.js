@@ -82,7 +82,21 @@ function isPerson(o) {
 
 function isStaticIndoor(o) {
   const c = String(o.class).toLowerCase();
-  return /chair|bench|couch|potted plant|suitcase|backpack/.test(c);
+  return /chair|bench|couch|potted plant|suitcase|backpack|dining table|bed|toilet/.test(c);
+}
+
+function isSurfaceHint(o) {
+  const c = String(o.class).toLowerCase();
+  return (
+    o.source === "heuristic" ||
+    c.includes("possible stairs") ||
+    c.includes("possible pothole")
+  );
+}
+
+function isVehicleLike(o) {
+  const c = String(o.class).toLowerCase();
+  return /^(car|truck|bus|motorcycle|bicycle|train|boat|airplane)$/.test(c);
 }
 
 /**
@@ -131,9 +145,14 @@ function buildIndoorExitNarration(obstacles, { dest, map, gpsAccuracyM, off }) {
       .slice(0, 4)
       .map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`)
       .join(", ");
-    const hint = rest.some(isStaticIndoor)
-      ? "Move around furniture if needed and keep walking toward daylight or signs for exit."
-      : "Keep scanning for a way out.";
+    let hint = "Keep scanning for a way out.";
+    if (rest.some(isStaticIndoor)) {
+      hint = "Move around furniture if needed and keep walking toward daylight or signs for exit.";
+    }
+    if (rest.some(isSurfaceHint)) {
+      hint +=
+        " If the camera flags possible stairs or an uneven patch, slow down and check with your foot or cane before stepping.";
+    }
     sentences.push(`In the room: ${bits}. ${hint}`);
   }
 
@@ -182,13 +201,20 @@ function buildOutdoorPathNarration(obstacles, { dest, map, navContext, gpsAccura
   const nearest = sorted[0];
   const urgent =
     nearest.distanceMeters < 3.2 && (nearest.zone === "center" || nearest.distanceMeters < 2.3);
-  const parts = sorted.slice(0, 5).map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`);
+  const parts = sorted.slice(0, 6).map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`);
+  const surfaceNote = sorted.some(isSurfaceHint)
+    ? " Surface hints are not perfect—double-check dips and steps yourself."
+    : "";
 
   if (urgent) {
-    return `${lead}Watch out on your path—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}. Then continue with the map step above.`;
+    const veh =
+      isVehicleLike(nearest) || isPerson(nearest)
+        ? " Give it extra space if it is traffic or a person."
+        : "";
+    return `${lead}Watch out on your path—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}.${veh} Then continue with the map step above.${surfaceNote}`;
   }
 
-  return `${lead}On your path in view: ${parts.join(", ")}.`;
+  return `${lead}On your path in view: ${parts.join(", ")}.${surfaceNote}`;
 }
 
 function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, off }) {
@@ -209,10 +235,13 @@ function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, o
     const nearest = sorted[0];
     const urgent =
       nearest.distanceMeters < 3.4 && (nearest.zone === "center" || nearest.distanceMeters < 2.4);
-    const parts = sorted.slice(0, 5).map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`);
+    const parts = sorted.slice(0, 6).map((o) => `${o.class} ${formatM(o.distanceMeters)} ${o.zone}`);
+    const surf = sorted.some(isSurfaceHint)
+      ? " (Camera may hint at stairs or a dip—verify underfoot.)"
+      : "";
     mid = urgent
-      ? `Watch out—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}. Also: ${parts.slice(1).join(", ") || "stay aware"}. ${map}`
-      : `Live: ${parts.join(", ")}. ${map}`;
+      ? `Watch out—${nearest.class} about ${formatM(nearest.distanceMeters)} ${nearest.zone}. Also: ${parts.slice(1).join(", ") || "stay aware"}. ${map}${surf}`
+      : `Live: ${parts.join(", ")}.${surf} ${map}`;
   }
 
   let tail = "";
