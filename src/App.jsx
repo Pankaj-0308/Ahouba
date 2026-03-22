@@ -3,6 +3,7 @@ import MapView from "./components/MapView.jsx";
 import CameraView from "./components/CameraView.jsx";
 import ObstacleOverlay from "./components/ObstacleOverlay.jsx";
 import { useWatchPosition } from "./hooks/useWatchPosition.js";
+import { usePeriodicLocationSync } from "./hooks/usePeriodicLocationSync.js";
 import { useSpeech } from "./hooks/useSpeech.js";
 import { useContinuousGuidance } from "./hooks/useContinuousGuidance.js";
 import { useVisionGuidance } from "./hooks/useVisionGuidance.js";
@@ -30,6 +31,7 @@ const speechSupported =
 
 export default function App() {
   const { loading: geoLoading, error: geoError, coords, heading, restart } = useWatchPosition(true);
+  usePeriodicLocationSync(coords, Boolean(coords && !geoError));
   const { speakNow, cancel, speaking } = useSpeech();
   const { listen, listening, supported: voiceInputSupported } = useVoiceDestination();
 

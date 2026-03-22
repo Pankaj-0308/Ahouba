@@ -15,8 +15,8 @@ const TICK_MS = 300;
 
 /**
  * Blind-navigation style: keep sampling the camera and updating obstacles + a live line.
- * Voice: one obstacle announcement per real view change (frame-diff gate ignores small tilts),
- * plus periodic route-alignment hints when the path is clear and the next maneuver is within 50 m.
+ * Voice: obstacle scene + (outdoor/mixed) route/GPS buckets; full monitor line is spoken when either
+ * changes. Voice state is always persisted so debouncers advance each tick.
  */
 export function useContinuousObstacleMonitor({
   videoEl,
@@ -122,8 +122,8 @@ export function useContinuousObstacleMonitor({
           wrongWaySignature: navContext?.wrongWaySignature ?? "",
         });
 
+        voiceStateRef.current = decision.nextState;
         if (decision.speak && decision.text) {
-          voiceStateRef.current = decision.nextState;
           speakNow(decision.text);
         }
       } catch {

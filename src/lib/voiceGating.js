@@ -7,7 +7,11 @@
  * - Clear path + within 50 m of next step: periodic route-alignment reminders (outdoor/mixed).
  */
 
-import { guidanceMode, pathAlignSignature } from "./liveCameraGuidance.js";
+import {
+  guidanceMode,
+  navDirectionVoiceSignature,
+  pathAlignSignature,
+} from "./liveCameraGuidance.js";
 
 /** Mean abs diff / 255; below this, treat as tilt/jitter, not a new view. */
 const VIEW_CHANGE_MIN = 0.032;
@@ -31,6 +35,9 @@ const URGENT_SAME_KEY_REPEAT_MS = 28000;
 const WRONG_WAY_SPEECH_GAP_MS = 2800;
 const WRONG_WAY_MIN_ANOTHER_MS = 8000;
 const WRONG_WAY_REPEAT_MS = 42000;
+
+/** Debounce GPS/route bucket changes before speaking the full monitor line. */
+const NAV_DIRECTION_DEBOUNCE_FRAMES = 3;
 
 /** Wider distance bins for voice-only signature. */
 function distBucketCoarse(m) {
@@ -98,6 +105,9 @@ export function computeUrgent(obstacles) {
  * @property {number} lastPathAlignAt
  * @property {string} lastWrongWaySig
  * @property {number} lastWrongWayAt
+ * @property {string} lastNavVoiceSig
+ * @property {string | null} pendingNavSig
+ * @property {number} pendingNavCount
  */
 
 /**
@@ -149,6 +159,9 @@ export function decideVoiceUtterance({
     nextState.lastUrgentKey = "";
     nextState.lastWrongWaySig = "";
     nextState.lastWrongWayAt = 0;
+    nextState.lastNavVoiceSig = "";
+    nextState.pendingNavSig = null;
+    nextState.pendingNavCount = 0;
     return { speak: true, text: lineFull, nextState };
   }
 
@@ -190,6 +203,37 @@ export function decideVoiceUtterance({
       nextState.pendingSceneSig = null;
       nextState.pendingSceneCount = 0;
       return { speak: true, text: wrongWayText, nextState };
+    }
+  }
+
+  // Outdoor / mixed: speak full on-screen line when route position or maneuver bucket changes,
+  // so users hear map + path alignment + obstacles together (not only when the camera scene changes).
+  if ((mode === "outdoor_route" || mode === "mixed") && navContext) {
+    const navSig = navDirectionVoiceSignature(navContext);
+    if (navSig && navSig !== state.lastNavVoiceSig) {
+      let pn = state.pendingNavSig ?? null;
+      let pc = state.pendingNavCount ?? 0;
+      if (navSig !== pn) {
+        pn = navSig;
+        pc = 1;
+      } else {
+        pc = Math.min(pc + 1, NAV_DIRECTION_DEBOUNCE_FRAMES);
+      }
+      nextState.pendingNavSig = pn;
+      nextState.pendingNavCount = pc;
+      if (pc >= NAV_DIRECTION_DEBOUNCE_FRAMES && timeSince >= MIN_SPEECH_GAP_MS) {
+        nextState.lastNavVoiceSig = navSig;
+        nextState.pendingNavSig = null;
+        nextState.pendingNavCount = 0;
+        nextState.lastSig = voiceSceneSignature(obstacles);
+        nextState.pendingSceneSig = null;
+        nextState.pendingSceneCount = 0;
+        nextState.lastSpokeAt = now;
+        return { speak: true, text: lineFull, nextState };
+      }
+    } else {
+      nextState.pendingNavSig = null;
+      nextState.pendingNavCount = 0;
     }
   }
 
@@ -271,5 +315,8 @@ export function initialVoiceState() {
     lastPathAlignAt: 0,
     lastWrongWaySig: "",
     lastWrongWayAt: 0,
+    lastNavVoiceSig: "",
+    pendingNavSig: null,
+    pendingNavCount: 0,
   };
 }

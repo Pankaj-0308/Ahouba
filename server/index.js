@@ -4,9 +4,10 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-require("dotenv").config();
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const tripsRouter = require("./routes/trips");
+const locationsRouter = require("./routes/locations");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -27,12 +28,13 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/trips", tripsRouter);
+app.use("/api/locations", locationsRouter);
 
 /** Avoid confusing 404 from the SPA catch-all when someone opens GET /api in the browser. */
 app.get("/api", (req, res) => {
   res.json({
     ok: true,
-    endpoints: ["/api/health", "GET /api/trips", "POST /api/trips"],
+    endpoints: ["/api/health", "GET /api/trips", "POST /api/trips", "POST /api/locations"],
   });
 });
 
@@ -69,7 +71,7 @@ async function start() {
         return res.status(404).json({
           error: "Not found",
           path: req.path,
-          hint: "Known routes: /api, /api/health, /api/trips",
+          hint: "Known routes: /api, /api/health, /api/trips, /api/locations",
         });
       }
       res.sendFile(indexHtml, (err) => {
