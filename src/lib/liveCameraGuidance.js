@@ -398,20 +398,29 @@ export function pathAlignSignature(navContext) {
   if (!navContext || navContext.distanceToManeuverMeters == null) return "";
   const dM = navContext.distanceToManeuverMeters;
   const dP = navContext.distanceToPath ?? 999;
-  return `pa:${Math.floor(dM / 8)}:${Math.floor(dP / 6)}`;
+  return `pa:${Math.floor(dM / 20)}:${Math.floor(dP / 8)}`;
 }
 
 /**
  * Coarse buckets for GPS/route state so TTS can fire when you move along the route or drift,
  * even if the camera obstacle list is unchanged.
  */
+/** ~20 m along-route progress → periodic full line (map + obstacles) without tiny-step chatter. */
+const ROUTE_VOICE_PROGRESS_M = 20;
+
 export function navDirectionVoiceSignature(navContext) {
   if (!navContext) return "";
   const dP = navContext.distanceToPath;
   const dM = navContext.distanceToManeuverMeters;
   const p =
-    dP == null ? "u" : dP <= 8 ? "on" : dP <= 22 ? "n" : dP <= 45 ? "m" : "f";
-  const m = dM == null ? "u" : `M${Math.floor(Math.min(dM, 400) / 15)}`;
-  const w = navContext.wrongWaySignature ? "W" : "_";
-  return `${p}|${m}|${w}`;
+    dP == null
+      ? "u"
+      : dP <= 10
+        ? "on"
+        : dP <= 28
+          ? "n"
+          : `f${Math.floor(Math.min(dP, 120) / 18)}`;
+  const m =
+    dM == null ? "u" : `M${Math.floor(Math.min(dM, 800) / ROUTE_VOICE_PROGRESS_M)}`;
+  return `${p}|${m}`;
 }

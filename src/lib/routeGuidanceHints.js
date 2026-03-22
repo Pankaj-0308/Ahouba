@@ -11,8 +11,8 @@ import {
   projectOntoPolylineDetailed,
 } from "./routeProgress.js";
 
-/** Degrees: if facing or moving differs this much from route-ahead bearing, treat as wrong way. */
-const WRONG_WAY_ANGLE_DEG = 118;
+/** Only treat as wrong way if you're ~opposite the path (reduces compass/GPS false alarms). */
+const WRONG_WAY_ANGLE_DEG = 150;
 
 /**
  * Coarse signature so voice can react when you drift on/off route without obstacle changes.
@@ -138,32 +138,42 @@ export function computeWrongWayHint({
   if (!ahead) return null;
   const routeBearing = bearingDegrees(userLat, userLng, ahead.lat, ahead.lng);
 
-  const compassWrong =
-    heading != null &&
-    !Number.isNaN(Number(heading)) &&
-    Math.abs(angleDiffDegrees(Number(heading), routeBearing)) > WRONG_WAY_ANGLE_DEG;
+  const compassDelta =
+    heading != null && !Number.isNaN(Number(heading))
+      ? Math.abs(angleDiffDegrees(Number(heading), routeBearing))
+      : null;
+  const moveDelta =
+    movementBearing != null && !Number.isNaN(Number(movementBearing))
+      ? Math.abs(angleDiffDegrees(Number(movementBearing), routeBearing))
+      : null;
 
-  const moveWrong =
-    movementBearing != null &&
-    !Number.isNaN(Number(movementBearing)) &&
-    Math.abs(angleDiffDegrees(Number(movementBearing), routeBearing)) > WRONG_WAY_ANGLE_DEG;
+  const compassWrong = compassDelta != null && compassDelta > WRONG_WAY_ANGLE_DEG;
+  const moveWrong = moveDelta != null && moveDelta > WRONG_WAY_ANGLE_DEG;
 
-  if (!compassWrong && !moveWrong) return null;
+  /** Compass alone is noisy; require movement + compass agreement when both exist. */
+  let reallyWrong = false;
+  if (compassDelta != null && moveDelta != null) {
+    reallyWrong = compassWrong && moveWrong;
+  } else if (moveDelta != null) {
+    reallyWrong = moveWrong;
+  } else {
+    reallyWrong = false;
+  }
+
+  if (!reallyWrong) return null;
 
   const dest = String(destination || "").trim() || "your destination";
   const parts = [
     "You are going the wrong way for this route—stop, turn around, and follow the blue line toward your destination.",
     `Aim toward ${dest} along the path shown on the map, not away from it.`,
   ];
-  if (compassWrong && moveWrong) {
-    parts.push("Both your compass direction and your recent GPS movement disagree with the route ahead.");
-  } else if (compassWrong) {
-    parts.push("Your phone compass suggests you are facing away from where the route continues.");
+  if (compassDelta != null && moveDelta != null) {
+    parts.push("Both your compass and your recent GPS movement disagree with the direction the route goes.");
   } else {
     parts.push("Your recent GPS movement is opposite the direction the route goes.");
   }
 
-  const sig = `ww:${compassWrong ? "c" : "-"}${moveWrong ? "m" : "-"}:${Math.floor(dist / 5)}`;
+  const sig = `ww:cm:${Math.floor(dist / 8)}`;
   return { text: parts.join(" "), signature: sig };
 }
 

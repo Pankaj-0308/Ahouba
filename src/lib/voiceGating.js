@@ -22,6 +22,9 @@ const SCENE_DEBOUNCE_FRAMES = 5;
 /** Minimum time between any non-urgent speech (path hint vs obstacle line). */
 const MIN_SPEECH_GAP_MS = 4000;
 
+/** Longer gap for full monitor line when only route buckets changed (map + obstacles together). */
+const ROUTE_MONITOR_MIN_GAP_MS = 9000;
+
 /** Repeat path-alignment hint while in range and camera is clear. */
 const PATH_ALIGN_REPEAT_MS = 45000;
 
@@ -31,10 +34,10 @@ const PATH_ALIGN_SIG_CHANGE_MIN_MS = 12000;
 const URGENT_MIN_GAP_MS = 9000;
 const URGENT_SAME_KEY_REPEAT_MS = 28000;
 
-/** Wrong-way alerts: priority after urgent; spaced so they are not constant. */
-const WRONG_WAY_SPEECH_GAP_MS = 2800;
-const WRONG_WAY_MIN_ANOTHER_MS = 8000;
-const WRONG_WAY_REPEAT_MS = 42000;
+/** Wrong-way alerts: rare; only after stricter detection in routeGuidanceHints. */
+const WRONG_WAY_SPEECH_GAP_MS = 6000;
+const WRONG_WAY_MIN_ANOTHER_MS = 45000;
+const WRONG_WAY_REPEAT_MS = 120000;
 
 /** Debounce GPS/route bucket changes before speaking the full monitor line. */
 const NAV_DIRECTION_DEBOUNCE_FRAMES = 3;
@@ -221,7 +224,7 @@ export function decideVoiceUtterance({
       }
       nextState.pendingNavSig = pn;
       nextState.pendingNavCount = pc;
-      if (pc >= NAV_DIRECTION_DEBOUNCE_FRAMES && timeSince >= MIN_SPEECH_GAP_MS) {
+      if (pc >= NAV_DIRECTION_DEBOUNCE_FRAMES && timeSince >= ROUTE_MONITOR_MIN_GAP_MS) {
         nextState.lastNavVoiceSig = navSig;
         nextState.pendingNavSig = null;
         nextState.pendingNavCount = 0;
