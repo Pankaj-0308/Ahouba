@@ -5,6 +5,8 @@
  * - Obstacle updates: one announcement per stable view; small tilts are ignored via
  *   frame-difference gating + coarse scene signature + debounce.
  * - Clear path + within 50 m of next step: periodic route-alignment reminders (outdoor/mixed).
+ * - **Safety:** when `shouldSuppressMapNavigation` is true, wrong-way, route-bucket, and path-alignment
+ *   branches are skipped so map hints do not compete with close-range obstacle handling (urgent still wins first).
  */
 
 import {
@@ -12,6 +14,7 @@ import {
   navDirectionVoiceSignature,
   pathAlignSignature,
 } from "./liveCameraGuidance.js";
+import { shouldSuppressMapNavigation } from "./visionSafety.js";
 
 /** Mean abs diff / 255; below this, treat as tilt/jitter, not a new view. */
 const VIEW_CHANGE_MIN = 0.032;
@@ -187,8 +190,11 @@ export function decideVoiceUtterance({
 
   nextState.lastUrgentKey = "";
 
+  const mapVoiceSuppressed = shouldSuppressMapNavigation(obstacles);
+
   // Wrong direction vs route (compass and/or GPS movement vs path ahead) — outdoor / mixed only
   if (
+    !mapVoiceSuppressed &&
     wrongWayText &&
     wrongWaySignature &&
     (mode === "outdoor_route" || mode === "mixed")
@@ -211,7 +217,7 @@ export function decideVoiceUtterance({
 
   // Outdoor / mixed: speak full on-screen line when route position or maneuver bucket changes,
   // so users hear map + path alignment + obstacles together (not only when the camera scene changes).
-  if ((mode === "outdoor_route" || mode === "mixed") && navContext) {
+  if (!mapVoiceSuppressed && (mode === "outdoor_route" || mode === "mixed") && navContext) {
     const navSig = navDirectionVoiceSignature(navContext);
     if (navSig && navSig !== state.lastNavVoiceSig) {
       let pn = state.pendingNavSig ?? null;
@@ -242,6 +248,7 @@ export function decideVoiceUtterance({
 
   // Path alignment when camera is clear (no obstacles) and outdoors/mixed — within 50 m (hint text only built then)
   if (
+    !mapVoiceSuppressed &&
     pathAlignmentText &&
     obstacles.length === 0 &&
     (mode === "outdoor_route" || mode === "mixed")

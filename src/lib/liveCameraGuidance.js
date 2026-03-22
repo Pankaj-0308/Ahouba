@@ -1,9 +1,13 @@
 /**
  * Present-tense, camera-first lines for continuous monitoring.
  * Indoor mode: list obstacles and steer toward clearer / more open floor space.
+ *
+ * Lateral **actions** are derived from `obstacle.zone` (see `blindDetection.horizontalZone` / `visionSafety.js`):
+ * image-left hazard → steer/spoken bias to the right, etc. Distance gates how strongly we warn.
  */
 
 import { obstacleSpokenLabel } from "./obstacleLabels.js";
+import { shouldSuppressMapNavigation } from "./visionSafety.js";
 
 function formatM(m) {
   if (m >= 10) return `${Math.round(m)} m`;
@@ -295,8 +299,32 @@ function buildIndoorSceneGuidance(obstacles, brightnessHint, { dest, map, gpsAcc
   return `${brightFirst}${head} ${tail}`.trim();
 }
 
+function safetyFirstSteerPhrase(zone) {
+  if (zone === "left") {
+    return "Bear right or pass on your right if that side is clear.";
+  }
+  if (zone === "right") {
+    return "Bear left or pass on your left if that side is clear.";
+  }
+  return "Slow down—step slightly left or right to clear the center before you move forward.";
+}
+
 function buildOutdoorPathNarration(obstacles, { dest, map, navContext, gpsAccuracyM, off }) {
   const routeHints = navContext?.routeHints;
+
+  if (shouldSuppressMapNavigation(obstacles)) {
+    const sorted = [...obstacles].sort((a, b) => a.distanceMeters - b.distanceMeters);
+    const n = sorted[0];
+    const steer = safetyFirstSteerPhrase(n.zone);
+    const also =
+      sorted.length > 1
+        ? ` Also in view: ${sorted
+            .slice(1, 5)
+            .map((o) => `${obstacleSpokenLabel(o)} ${formatM(o.distanceMeters)} ${o.zone}`)
+            .join(", ")}.`
+        : "";
+    return `Safety first—${obstacleSpokenLabel(n)} about ${formatM(n.distanceMeters)} ${n.zone}. ${steer}${also} When your path is clear, follow the map toward ${dest}: ${map}`;
+  }
 
   let lead = `Where to go: ${map} Goal: ${dest}. `;
 
@@ -336,6 +364,20 @@ function buildOutdoorPathNarration(obstacles, { dest, map, navContext, gpsAccura
 
 function buildMixedNarration(obstacles, { dest, map, navContext, gpsAccuracyM, off }) {
   const routeHints = navContext?.routeHints;
+
+  if (shouldSuppressMapNavigation(obstacles)) {
+    const sorted = [...obstacles].sort((a, b) => a.distanceMeters - b.distanceMeters);
+    const n = sorted[0];
+    const steer = safetyFirstSteerPhrase(n.zone);
+    const also =
+      sorted.length > 1
+        ? ` More: ${sorted
+            .slice(1, 4)
+            .map((o) => `${obstacleSpokenLabel(o)} ${formatM(o.distanceMeters)} ${o.zone}`)
+            .join(", ")}.`
+        : "";
+    return `Safety first—${obstacleSpokenLabel(n)} about ${formatM(n.distanceMeters)} ${n.zone}. ${steer}${also} When clear, use the map toward ${dest}: ${map}`;
+  }
 
   let prefix = `Heading to ${dest}. `;
   if (routeHints?.combined) {

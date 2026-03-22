@@ -1,5 +1,23 @@
 /**
- * Path-focused obstacle detection: COCO-SSD (people, vehicles, animals, traffic, furniture…).
+ * Real-time path obstacle detection — optimized single-shot pipeline.
+ *
+ * **Model:** `@tensorflow-models/coco-ssd` with **MobileNetV2** (`lite_mobilenet_v2`). That is a
+ * lightweight single-stage detector in the same *latency class* as tiny YOLO variants on CPU/WebGL.
+ * To swap in **YOLOv8n** (or similar), replace `getModel()` + the forward pass with ONNX Runtime Web
+ * (or a TF.js–converted graph) and feed the output boxes through `predictionsToObstacleRows()` unchanged
+ * so zones, distances, and the safety layer stay consistent.
+ *
+ * **Vision → navigation mapping (coordinates):**
+ * 1. **Input frame** — We run inference on a **downscaled** canvas (max width `INFERENCE_MAX_WIDTH`) for
+ *    lower GPU fill rate and faster WebGL ops; boxes are scaled **back** to full `videoWidth` × `videoHeight`
+ *    so `ObstacleOverlay` and distance math match the live view.
+ * 2. **BBox `[x, y, w, h]`** — Top-left origin, pixels; `centerX = x + w/2` drives lateral semantics.
+ * 3. **`horizontalZone(centerX, frameWidth)`** — Divides FOV into thirds → `left` | `center` | `right`.
+ *    This is the primary cue for spoken steer-left / steer-right (see `liveCameraGuidance.js`).
+ * 4. **`estimateDistanceMeters`** — Uses horizontal FOV (`CAMERA_HORIZONTAL_FOV_DEG`), frame aspect, and
+ *    typical object height/width (m) to invert apparent bbox size → slant range along the optical axis.
+ * 5. **Downstream** — `visionSafety.js` may **suppress map-first** TTS when objects are too close in the
+ *    center corridor; `voiceGating.js` prioritizes urgent obstacle speech over route hints.
  */
 
 import * as tf from "@tensorflow/tfjs";
@@ -7,6 +25,9 @@ import { load as loadCocoSsd } from "@tensorflow-models/coco-ssd";
 import { displayNameForClass } from "./obstacleLabels.js";
 
 const CAMERA_HORIZONTAL_FOV_DEG = 65;
+
+/** Narrower side for WebGL inference — big win for latency; boxes are re-scaled to full video space. */
+const INFERENCE_MAX_WIDTH = 384;
 
 /** Typical real-world sizes (m) — COCO class names must match model output (lowercase). */
 const TYPICAL_OBJECT_HEIGHT_M = {
@@ -176,6 +197,10 @@ const DEFAULT_WIDTH_M = 0.42;
 const DISTANCE_EMA_ALPHA = 0.35;
 const distanceSmoothing = new Map();
 
+/**
+ * Map bbox size + assumed physical size → range along the **camera optical axis** (not map ground distance).
+ * Feeds `distanceMeters` used by urgency, safety override, and spoken "about X meters".
+ */
 function estimateDistanceMeters(det, frameWidth, frameHeight) {
   const objectLabel = det.class.toLowerCase();
   const realHeightM = TYPICAL_OBJECT_HEIGHT_M[objectLabel] ?? DEFAULT_HEIGHT_M;
@@ -214,6 +239,10 @@ function getSmoothedDistance(key, rawM) {
   return next;
 }
 
+/**
+ * Map bbox center X to a coarse **walking corridor** in the camera frame.
+ * Used by TTS ("on your left") and by `visionSafety.js` (center strip = forward path).
+ */
 function horizontalZone(centerX, frameWidth) {
   const t = frameWidth / 3;
   if (centerX < t) return "left";
@@ -222,6 +251,9 @@ function horizontalZone(centerX, frameWidth) {
 }
 
 let modelPromise = null;
+/** Reused canvas avoids per-frame allocation (GC pauses hurt real-time feel). */
+let inferCanvas = null;
+let inferCtx = null;
 
 async function getModel() {
   if (!modelPromise) {
@@ -230,10 +262,47 @@ async function getModel() {
       const ok = await tf.setBackend("webgl").then(() => tf.getBackend() === "webgl").catch(() => false);
       if (!ok) await tf.setBackend("cpu");
       await tf.ready();
+      try {
+        tf.env().set("WEBGL_PACK", true);
+      } catch {
+        /* ignore if env flags unavailable */
+      }
       return loadCocoSsd({ base: "lite_mobilenet_v2" });
     })();
   }
   return modelPromise;
+}
+
+/**
+ * Draw the current video frame into a smaller bitmap for faster SSD forward pass.
+ * @returns {{ canvas: HTMLCanvasElement, vw: number, vh: number, cw: number, ch: number, sx: number, sy: number } | null}
+ */
+function prepareInferenceFrame(video) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const scale = vw > INFERENCE_MAX_WIDTH ? INFERENCE_MAX_WIDTH / vw : 1;
+  const cw = Math.max(16, Math.round(vw * scale));
+  const ch = Math.max(16, Math.round(vh * scale));
+  if (!inferCanvas) {
+    inferCanvas = document.createElement("canvas");
+    inferCtx = inferCanvas.getContext("2d", { alpha: false });
+  }
+  if (!inferCtx) return null;
+  if (inferCanvas.width !== cw || inferCanvas.height !== ch) {
+    inferCanvas.width = cw;
+    inferCanvas.height = ch;
+  }
+  inferCtx.drawImage(video, 0, 0, cw, ch);
+  return {
+    canvas: inferCanvas,
+    vw,
+    vh,
+    cw,
+    ch,
+    sx: vw / cw,
+    sy: vh / ch,
+  };
 }
 
 /** Slightly higher to reduce spurious COCO labels. */
@@ -274,20 +343,12 @@ function finalizeObstacleRows(rows) {
 }
 
 /**
- * @returns {Promise<Array<{ class: string, displayName?: string, distanceMeters: number, zone: string, bbox: [number,number,number,number], source?: string }>>}
+ * Normalize raw detector boxes into navigation rows (call from SSD, YOLO, etc.).
+ * @param {Array<{ class: string, score: number, bbox: [number,number,number,number] }>} predictions
+ * @param {number} w - full video width (for zone + distance + overlay)
+ * @param {number} h - full video height
  */
-export async function detectNavigationObstacles(video) {
-  if (!video || video.readyState < 2 || video.videoWidth < 16) return [];
-
-  const w = video.videoWidth;
-  const h = video.videoHeight;
-  const model = await getModel();
-  const predictions = await model.detect(
-    video,
-    MAX_COCO_DETECTIONS,
-    Math.min(MIN_SCORE, MIN_SCORE_INDOOR_OBJECT)
-  );
-
+export function predictionsToObstacleRows(predictions, w, h) {
   const rows = [];
   for (let i = 0; i < predictions.length; i++) {
     const pred = predictions[i];
@@ -300,7 +361,7 @@ export async function detectNavigationObstacles(video) {
     const centerX = x + bw / 2;
     const zone = horizontalZone(centerX, w);
     const raw = estimateDistanceMeters(pred, w, h);
-    const smoothKey = `coco_${cls}_${Math.round(centerX / 80)}`;
+    const smoothKey = `det_${cls}_${Math.round(centerX / 80)}`;
     const distanceMeters = getSmoothedDistance(smoothKey, raw);
     if (distanceMeters == null) continue;
 
@@ -314,6 +375,38 @@ export async function detectNavigationObstacles(video) {
       source: "coco",
     });
   }
-
   return finalizeObstacleRows(rows);
+}
+
+/**
+ * @returns {Promise<Array<{ class: string, displayName?: string, distanceMeters: number, zone: string, bbox: [number,number,number,number], source?: string }>>}
+ */
+export async function detectNavigationObstacles(video) {
+  if (!video || video.readyState < 2 || video.videoWidth < 16) return [];
+
+  const frame = prepareInferenceFrame(video);
+  const model = await getModel();
+  const inferSource = frame?.canvas ?? video;
+
+  const predictions = await model.detect(
+    inferSource,
+    MAX_COCO_DETECTIONS,
+    Math.min(MIN_SCORE, MIN_SCORE_INDOOR_OBJECT)
+  );
+
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  const sx = frame ? frame.sx : 1;
+  const sy = frame ? frame.sy : 1;
+
+  const scaled = predictions.map((p) => {
+    const [x, y, bw, bh] = p.bbox;
+    return {
+      class: p.class,
+      score: p.score,
+      bbox: [x * sx, y * sy, bw * sx, bh * sy],
+    };
+  });
+
+  return predictionsToObstacleRows(scaled, w, h);
 }

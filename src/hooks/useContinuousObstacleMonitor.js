@@ -10,8 +10,8 @@ import { analyzeDirectionalBrightness } from "../lib/indoorCameraHints.js";
 import { createFrameChangeTracker } from "../lib/cameraFrameChange.js";
 import { decideVoiceUtterance, initialVoiceState } from "../lib/voiceGating.js";
 
-/** How often we run COCO on the camera (continuous monitoring). */
-const TICK_MS = 300;
+/** Vision tick: balance latency vs CPU/GPU; inference uses a downscaled frame for faster SSD steps. */
+const TICK_MS = 220;
 
 /**
  * Blind-navigation style: keep sampling the camera and updating obstacles + a live line.
