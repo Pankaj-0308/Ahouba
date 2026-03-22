@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-const HALF_HOUR_MS = 30 * 60 * 1000;
+const LOCATION_INTERVAL_MS = 30 * 1000;
 
 function locationsUrl() {
   const base = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
@@ -8,7 +8,7 @@ function locationsUrl() {
 }
 
 /**
- * POSTs the latest GPS fix to the server every 30 minutes while enabled.
+ * POSTs the latest GPS fix to the server every 30 seconds while enabled.
  * Requires MongoDB + POST /api/locations on the same origin (prod) or Vite proxy (dev).
  */
 export function usePeriodicLocationSync(coords, enabled = true) {
@@ -39,7 +39,8 @@ export function usePeriodicLocationSync(coords, enabled = true) {
       }
     }
 
-    const id = window.setInterval(send, HALF_HOUR_MS);
+    void send();
+    const id = window.setInterval(send, LOCATION_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
