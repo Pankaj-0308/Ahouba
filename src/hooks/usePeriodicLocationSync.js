@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getPersonUserId } from "../lib/personUserId.js";
 
 const LOCATION_INTERVAL_MS = 30 * 1000;
 
@@ -8,8 +9,8 @@ function locationsUrl() {
 }
 
 /**
- * POSTs the latest GPS fix to the server every 30 seconds while enabled.
- * Requires MongoDB + POST /api/locations on the same origin (prod) or Vite proxy (dev).
+ * Upserts location for this user every 30s (personUserId, lat, lng, timestamp, isOnline).
+ * Set VITE_PERSON_USER_ID to a fixed MongoDB ObjectId string per device/user if you assign ids server-side.
  */
 export function usePeriodicLocationSync(coords, enabled = true) {
   const coordsRef = useRef(null);
@@ -23,15 +24,19 @@ export function usePeriodicLocationSync(coords, enabled = true) {
     async function send() {
       const c = coordsRef.current;
       if (!c || cancelled) return;
+      const personUserId = getPersonUserId();
+      if (!personUserId) return;
+      const timestamp = new Date().toISOString();
       try {
         await fetch(locationsUrl(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            personUserId,
             lat: c.lat,
             lng: c.lng,
-            accuracy: c.accuracy,
-            source: "web",
+            timestamp,
+            isOnline: true,
           }),
         });
       } catch {
